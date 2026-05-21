@@ -47,6 +47,26 @@ describe('patchHooksJsonForWindows', () => {
         const cmd = patched.hooks.UserPromptSubmit[0].hooks[0].command;
         expect(cmd).toBe('node "$CLAUDE_PLUGIN_ROOT"/scripts/run.cjs "$CLAUDE_PLUGIN_ROOT"/scripts/keyword-detector.mjs');
     });
+    it('replaces current quoted /bin/sh+find-node+run.cjs commands with the run.cjs wrapper', () => {
+        const original = makeHooksJson([
+            '"/bin/sh" "$CLAUDE_PLUGIN_ROOT"/scripts/find-node.sh "$CLAUDE_PLUGIN_ROOT"/scripts/run.cjs "$CLAUDE_PLUGIN_ROOT"/scripts/keyword-detector.mjs',
+        ]);
+        writeFileSync(hooksJsonPath, JSON.stringify(original, null, 2));
+        patchHooksJsonForWindows(pluginRoot);
+        const patched = JSON.parse(readFileSync(hooksJsonPath, 'utf-8'));
+        const cmd = patched.hooks.UserPromptSubmit[0].hooks[0].command;
+        expect(cmd).toBe('node "$CLAUDE_PLUGIN_ROOT"/scripts/run.cjs "$CLAUDE_PLUGIN_ROOT"/scripts/keyword-detector.mjs');
+    });
+    it('preserves trailing arguments for current quoted /bin/sh+find-node+run.cjs commands', () => {
+        const original = makeHooksJson([
+            '"/bin/sh" "$CLAUDE_PLUGIN_ROOT"/scripts/find-node.sh "$CLAUDE_PLUGIN_ROOT"/scripts/run.cjs "$CLAUDE_PLUGIN_ROOT"/scripts/subagent-tracker.mjs start',
+        ]);
+        writeFileSync(hooksJsonPath, JSON.stringify(original, null, 2));
+        patchHooksJsonForWindows(pluginRoot);
+        const patched = JSON.parse(readFileSync(hooksJsonPath, 'utf-8'));
+        const cmd = patched.hooks.UserPromptSubmit[0].hooks[0].command;
+        expect(cmd).toBe('node "$CLAUDE_PLUGIN_ROOT"/scripts/run.cjs "$CLAUDE_PLUGIN_ROOT"/scripts/subagent-tracker.mjs start');
+    });
     it('preserves trailing arguments (e.g. subagent-tracker start)', () => {
         const original = makeHooksJson([
             'sh "${CLAUDE_PLUGIN_ROOT}/scripts/find-node.sh" "${CLAUDE_PLUGIN_ROOT}/scripts/subagent-tracker.mjs" start',

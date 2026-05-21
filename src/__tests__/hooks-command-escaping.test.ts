@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { join } from 'path';
 
 interface HooksConfig {
@@ -38,6 +39,7 @@ function getHookCommands(): string[] {
 describe('hooks.json command escaping', () => {
   it('uses shell-expanded CLAUDE_PLUGIN_ROOT segments instead of pre-expanded ${...} placeholders', () => {
     for (const command of getHookCommands()) {
+      expect(command).toContain('"$CLAUDE_PLUGIN_ROOT"/scripts/find-node.sh');
       expect(command).toContain('"$CLAUDE_PLUGIN_ROOT"/scripts/run.cjs');
       expect(command).not.toContain('${CLAUDE_PLUGIN_ROOT}/scripts/run.cjs');
       expect(command).not.toContain('${CLAUDE_PLUGIN_ROOT}/scripts/');
@@ -50,13 +52,46 @@ describe('hooks.json command escaping', () => {
     for (const command of getHookCommands()) {
       const argv = expandHookCommandArgv(command, pluginRoot);
 
-      expect(argv[0]).toMatch(/(^|[/\\])node(?:\.exe)?$/);
-      expect(argv[1]).toBe(`${pluginRoot}/scripts/run.cjs`);
-      expect(argv[2]).toContain(`${pluginRoot}/scripts/`);
+      expect(argv[0]).toBe('/bin/sh');
+      expect(argv[1]).toBe(`${pluginRoot}/scripts/find-node.sh`);
+      expect(argv[2]).toBe(`${pluginRoot}/scripts/run.cjs`);
+      expect(argv[3]).toContain(`${pluginRoot}/scripts/`);
       expect(argv[1]).toContain('First Last');
       expect(argv[2]).toContain('First Last');
+      expect(argv[3]).toContain('First Last');
       expect(argv).not.toContain('/c/Users/First');
       expect(argv).not.toContain('Last/.claude/plugins/cache/omc/oh-my-claudecode/4.7.10/scripts/run.cjs');
+    }
+  });
+
+  it('find-node bootstrap can execute when node is absent from PATH', () => {
+    const homeDir = mkdtempSync(join(tmpdir(), 'omc-hook-node-path-'));
+    const configDir = join(homeDir, '.claude');
+
+    try {
+      execFileSync('/bin/mkdir', ['-p', configDir]);
+      writeFileSync(
+        join(configDir, '.omc-config.json'),
+        JSON.stringify({ nodeBinary: process.execPath }),
+        'utf-8',
+      );
+
+      const stdout = execFileSync('/bin/sh', [
+        join(process.cwd(), 'scripts', 'find-node.sh'),
+        '-e',
+        "process.stdout.write('ok')",
+      ], {
+        encoding: 'utf-8',
+        env: {
+          HOME: homeDir,
+          CLAUDE_CONFIG_DIR: configDir,
+          PATH: '/usr/bin:/bin',
+        },
+      });
+
+      expect(stdout).toBe('ok');
+    } finally {
+      rmSync(homeDir, { recursive: true, force: true });
     }
   });
 });

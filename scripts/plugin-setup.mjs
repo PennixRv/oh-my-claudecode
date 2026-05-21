@@ -21,8 +21,9 @@ const CLAUDE_DIR = getClaudeConfigDir();
 const HUD_DIR = join(CLAUDE_DIR, 'hud');
 const HUD_LIB_DIR = join(HUD_DIR, 'lib');
 const SETTINGS_FILE = join(CLAUDE_DIR, 'settings.json');
-// Use the absolute node binary path so nvm/fnm users don't get
-// "node not found" errors in non-interactive shells (issue #892).
+// Store the absolute node binary path so find-node.sh can resolve Node for
+// nvm/fnm users whose non-interactive hook shells do not include node on PATH
+// (issue #892).
 const nodeBin = process.execPath || 'node';
 
 console.log('[OMC] Running post-install setup...');
@@ -103,18 +104,22 @@ try {
   console.log('[OMC] Warning: Could not configure settings.json:', e.message);
 }
 
-// Patch hooks.json to use the absolute node binary path so hooks work on all
-// platforms: Windows (no `sh`), nvm/fnm users (node not on PATH in hooks), etc.
+// Patch hooks.json to keep plugin-provided hook commands portable across
+// machines. Hooks must not bake the installer's local Node path into package
+// metadata, but they must also not depend on `node` being on hook PATH. The
+// portable Unix bootstrap is /bin/sh + find-node.sh + run.cjs; setup still
+// persists an absolute Node path to .omc-config.json for find-node.sh.
 //
 // The source hooks.json uses shell-expanded `$CLAUDE_PLUGIN_ROOT` path segments
-// so bash preserves spaces in Windows profile paths; this step only substitutes
-// the real process.execPath so Claude Code always invokes the same Node binary
-// that ran this setup script.
+// so bash preserves spaces in Windows profile paths.
+const runCjsHookPrefix = process.platform === 'win32'
+  ? 'node "$CLAUDE_PLUGIN_ROOT"/scripts/run.cjs '
+  : '"/bin/sh" "$CLAUDE_PLUGIN_ROOT"/scripts/find-node.sh "$CLAUDE_PLUGIN_ROOT"/scripts/run.cjs ';
 //
-// Two patterns are handled:
-//  1. New format  – node "$CLAUDE_PLUGIN_ROOT"/scripts/run.cjs ... (all platforms)
-//  2. Old format  – sh  "${CLAUDE_PLUGIN_ROOT}/scripts/find-node.sh" ... (Windows
-//     backward-compat: migrates old installs to the new run.cjs chain)
+// Three patterns are handled:
+//  1. Bare run.cjs format – node "$CLAUDE_PLUGIN_ROOT"/scripts/run.cjs ...
+//  2. Absolute run.cjs format from older setup patches
+//  3. Old find-node.sh format – sh "${CLAUDE_PLUGIN_ROOT}/scripts/find-node.sh" ...
 //
 // Fixes issues #909, #899, #892, #869.
 try {
@@ -126,50 +131,49 @@ try {
     // Pattern 2 (old, Windows backward-compat): sh find-node.sh <target> [args]
     const findNodePattern =
       /^sh "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/find-node\.sh" "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/([^"]+)"(.*)$/;
+    const currentFindNodePattern =
+      /^"\/bin\/sh" "\$CLAUDE_PLUGIN_ROOT"\/scripts\/find-node\.sh "\$CLAUDE_PLUGIN_ROOT"\/scripts\/run\.cjs "\$CLAUDE_PLUGIN_ROOT"\/scripts\/([^\s]+)(.*)$/;
 
     for (const groups of Object.values(data.hooks ?? {})) {
       for (const group of groups) {
         for (const hook of (group.hooks ?? [])) {
           if (typeof hook.command !== 'string') continue;
 
-          // New run.cjs format — replace bare `node` with absolute path (all platforms)
+          // Bare run.cjs format depends on node being on PATH; route through
+          // find-node.sh instead while preserving the run.cjs Windows-safe
+          // process.execPath handoff once Node is found.
           if (hook.command.startsWith('node ') && hook.command.includes('/scripts/run.cjs')) {
-            hook.command = hook.command.replace(/^node\b/, `"${nodeBin}"`);
+            hook.command = hook.command.replace(
+              /^node\s+"\$CLAUDE_PLUGIN_ROOT"\/scripts\/run\.cjs\s+/,
+              runCjsHookPrefix,
+            );
             patched = true;
             continue;
           }
 
           // Self-healing: if hooks.json already contains an absolute node path
           // from a previous patch (possibly on a different machine, e.g. the
-          // GitHub Actions runner at publish time — see issue #2348), and that
-          // path is either missing on this machine or differs from the current
-          // node binary, rewrite it to the current `nodeBin`.  Without this
-          // users who install a tarball that was accidentally published with a
-          // stale absolute path (e.g. /opt/hostedtoolcache/node/.../bin/node)
-          // can never self-heal, because the bare-`node` branch above no longer
-          // matches.
+          // GitHub Actions runner at publish time — see issue #2348), rewrite it
+          // to the portable find-node bootstrap. Without this users who install
+          // a tarball accidentally published with a stale absolute path (e.g.
+          // /opt/hostedtoolcache/node/.../bin/node) can never self-heal.
           const absNodeMatch = hook.command.match(
             /^"([^"]*\/node|[A-Za-z]:\\[^"]*\\node(?:\.exe)?)"\s+.*\/scripts\/run\.cjs/,
           );
           if (absNodeMatch) {
-            const currentBin = absNodeMatch[1];
-            if (currentBin !== nodeBin && (!existsSync(currentBin) || currentBin.includes('/hostedtoolcache/'))) {
-              hook.command = hook.command.replace(
-                /^"[^"]*"/,
-                `"${nodeBin}"`,
-              );
-              patched = true;
-            }
+            hook.command = hook.command.replace(
+              /^"[^"]*"\s+"\$CLAUDE_PLUGIN_ROOT"\/scripts\/run\.cjs\s+/,
+              runCjsHookPrefix,
+            );
+            patched = true;
             continue;
           }
 
-          // Old find-node.sh format — migrate to run.cjs + absolute path (Windows only)
-          if (process.platform === 'win32') {
-            const m2 = hook.command.match(findNodePattern);
-            if (m2) {
-              hook.command = `"${nodeBin}" "$CLAUDE_PLUGIN_ROOT"/scripts/run.cjs "$CLAUDE_PLUGIN_ROOT"/scripts/${m2[1]}${m2[2]}`;
-              patched = true;
-            }
+          // Current/old find-node.sh formats — normalize to the platform prefix.
+          const m2 = hook.command.match(currentFindNodePattern) ?? hook.command.match(findNodePattern);
+          if (m2) {
+            hook.command = `${runCjsHookPrefix}"$CLAUDE_PLUGIN_ROOT"/scripts/${m2[1]}${m2[2]}`;
+            patched = true;
           }
         }
       }
@@ -177,7 +181,7 @@ try {
 
     if (patched) {
       writeFileSync(hooksJsonPath, JSON.stringify(data, null, 2) + '\n');
-      console.log(`[OMC] Patched hooks.json with absolute node path (${nodeBin}), fixes issues #909, #899, #892`);
+      console.log('[OMC] Patched hooks.json to use portable find-node hook commands');
     }
   }
 } catch (e) {

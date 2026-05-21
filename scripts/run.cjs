@@ -4,18 +4,22 @@
  * OMC Cross-platform hook runner (run.cjs)
  *
  * Uses process.execPath (the Node binary already running this script) to spawn
- * the target .mjs hook, bypassing PATH / shell discovery issues.
+ * the target .mjs hook. On Unix, hooks/find-node.sh locates Node first without
+ * relying on hook shell PATH; on Windows, setup can route directly through
+ * `node ... run.cjs` to avoid /bin/sh.
  *
- * Replaces the `sh + find-node.sh` chain that fails on Windows because
- * /usr/bin/sh is a PE32+ binary the OS refuses to execute natively.
+ * Keeps the Windows-safe process.execPath handoff once Node has launched this
+ * runner.
  * Fixes issues #909, #899, #892, #869.
  *
- * Usage (from hooks.json, after setup patches the absolute node path in):
- *   /abs/path/to/node "${CLAUDE_PLUGIN_ROOT}/scripts/run.cjs" \
+ * Unix usage (from hooks.json):
+ *   /bin/sh "${CLAUDE_PLUGIN_ROOT}/scripts/find-node.sh" \
+ *       "${CLAUDE_PLUGIN_ROOT}/scripts/run.cjs" \
  *       "${CLAUDE_PLUGIN_ROOT}/scripts/<hook>.mjs" [args...]
  *
- * During post-install setup, the leading `node` token is replaced with
- * process.execPath so nvm/fnm users and Windows users all get the right binary.
+ * Windows setup may patch the leading bootstrap to:
+ *   node "${CLAUDE_PLUGIN_ROOT}/scripts/run.cjs" \
+ *       "${CLAUDE_PLUGIN_ROOT}/scripts/<hook>.mjs" [args...]
  */
 
 const { spawnSync } = require('child_process');

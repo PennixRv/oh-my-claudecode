@@ -93,3 +93,28 @@ describe('plugin-setup.mjs Ralph Ruby dependency guidance (issue #2969)', () => 
     expect(scriptContent).toContain('restart Claude Code');
   });
 });
+
+describe('plugin-setup.mjs hook command portability', () => {
+  const scriptContent = existsSync(PLUGIN_SETUP_PATH)
+    ? readFileSync(PLUGIN_SETUP_PATH, 'utf-8')
+    : '';
+
+  it('recognizes the committed quoted /bin/sh+find-node+run.cjs hook command format', () => {
+    const regexLiteral = scriptContent.match(/const currentFindNodePattern =\n\s+(\/\^.*\/);/);
+    expect(regexLiteral).not.toBeNull();
+
+    const source = regexLiteral?.[1] ?? '';
+    const lastSlash = source.lastIndexOf('/');
+    const pattern = source.slice(1, lastSlash);
+    const flags = source.slice(lastSlash + 1);
+    const currentFindNodePattern = new RegExp(pattern, flags);
+
+    const currentCommand =
+      '"/bin/sh" "$CLAUDE_PLUGIN_ROOT"/scripts/find-node.sh "$CLAUDE_PLUGIN_ROOT"/scripts/run.cjs "$CLAUDE_PLUGIN_ROOT"/scripts/keyword-detector.mjs';
+
+    expect(currentCommand.match(currentFindNodePattern)?.slice(1)).toEqual([
+      'keyword-detector.mjs',
+      '',
+    ]);
+  });
+});
