@@ -15,6 +15,7 @@ import { render } from "./render.js";
 import { detectApiKeySource } from "./elements/api-key-source.js";
 import { refreshMissionBoardState } from "./mission-board.js";
 import { sanitizeOutput } from "./sanitize.js";
+import { estimatePayloadFromTranscriptPath } from "./payload-estimate.js";
 import { getRuntimePackageVersion } from "../lib/version.js";
 import { compareVersions } from "../features/auto-update.js";
 import { resolveToWorktreeRoot, resolveTranscriptPath, } from "../lib/worktree-paths.js";
@@ -338,6 +339,7 @@ async function main(watchMode = false, skipInit = false) {
             ? await refreshMissionBoardState(cwd, config.missionBoard)
             : null;
         const contextPercent = getContextPercent(stdin);
+        const payloadEstimate = estimatePayloadFromTranscriptPath(resolvedTranscriptPath);
         // Read subscription info for enterprise detection (best-effort).
         // Rate-limit rendering must not depend on this metadata being present.
         const subscriptionInfo = (() => {
@@ -389,13 +391,17 @@ async function main(watchMode = false, skipInit = false) {
                 : null,
             sessionSummary,
             lastToolName: transcriptData.lastToolName,
+            payloadEstimate,
         };
         // Debug: log data if OMC_DEBUG is set
         if (process.env.OMC_DEBUG) {
             console.error("[HUD DEBUG] stdin.context_window:", JSON.stringify(stdin.context_window));
             console.error("[HUD DEBUG] sessionHealth:", JSON.stringify(context.sessionHealth));
         }
-        // autoCompact: write trigger file when context exceeds threshold
+        // autoCompact: write trigger file when token context exceeds threshold.
+        // Payload pressure is warning-only for now because statusline hooks can
+        // estimate from local transcript artifacts but do not receive Claude Code's
+        // exact serialized API request body.
         // A companion hook can read this file to inject a /compact suggestion.
         if (config.contextLimitWarning.autoCompact &&
             context.contextPercent >= config.contextLimitWarning.threshold) {

@@ -6,6 +6,7 @@
 import type { AutopilotStateForHud } from './elements/autopilot.js';
 import type { ApiKeySource } from './elements/api-key-source.js';
 import type { SessionSummaryState } from './elements/session-summary.js';
+import type { PayloadEstimate } from './payload-estimate.js';
 import type { MissionBoardConfig, MissionBoardState } from './mission-board.js';
 export type { AutopilotStateForHud, ApiKeySource, SessionSummaryState };
 export interface BackgroundTask {
@@ -315,6 +316,8 @@ export interface HudRenderContext {
     sessionSummary: SessionSummaryState | null;
     /** Name of the last tool called in this session */
     lastToolName?: string | null;
+    /** Best-effort local transcript-backed request payload pressure estimate. */
+    payloadEstimate?: PayloadEstimate | null;
 }
 export type HudPreset = 'minimal' | 'focused' | 'full' | 'opencode' | 'dense';
 /**

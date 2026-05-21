@@ -7,6 +7,7 @@
 import type { AutopilotStateForHud } from './elements/autopilot.js';
 import type { ApiKeySource } from './elements/api-key-source.js';
 import type { SessionSummaryState } from './elements/session-summary.js';
+import type { PayloadEstimate } from './payload-estimate.js';
 import type { MissionBoardConfig, MissionBoardState } from './mission-board.js';
 import { DEFAULT_MISSION_BOARD_CONFIG } from './mission-board.js';
 
@@ -412,6 +413,9 @@ export interface HudRenderContext {
 
   /** Name of the last tool called in this session */
   lastToolName?: string | null;
+
+  /** Best-effort local transcript-backed request payload pressure estimate. */
+  payloadEstimate?: PayloadEstimate | null;
 }
 
 // ============================================================================
@@ -646,7 +650,7 @@ export const DEFAULT_ELEMENT_ORDER: Required<LayoutConfig> = {
     'skills', 'lastSkill', 'contextBar', 'agents', 'background',
     'callCounts', 'lastTool', 'sessionSummary',
   ],
-  detail: ['missionBoard', 'agents', 'contextWarning', 'todos'],
+  detail: ['missionBoard', 'agents', 'contextWarning', 'payloadWarning', 'todos'],
 };
 
 export interface HudConfig {

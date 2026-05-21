@@ -74,7 +74,7 @@ export const DEFAULT_ELEMENT_ORDER = {
         'skills', 'lastSkill', 'contextBar', 'agents', 'background',
         'callCounts', 'lastTool', 'sessionSummary',
     ],
-    detail: ['missionBoard', 'agents', 'contextWarning', 'todos'],
+    detail: ['missionBoard', 'agents', 'contextWarning', 'payloadWarning', 'todos'],
 };
 export const DEFAULT_HUD_USAGE_POLL_INTERVAL_MS = 90 * 1000;
 export const DEFAULT_HUD_CONFIG = {
