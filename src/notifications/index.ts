@@ -113,6 +113,7 @@ import { getCurrentTmuxSession } from "./tmux.js";
 import { getHookConfig, resolveEventTemplate } from "./hook-config.js";
 import { interpolateTemplate } from "./template-engine.js";
 import { basename, join } from "path";
+import { getOmcRoot } from "../lib/worktree-paths.js";
 
 /**
  * High-level notification function.
@@ -202,7 +203,7 @@ export async function notify(
         );
         const tailLines = getTmuxTailLines(config);
         const rawTail = payload.projectPath
-          ? getNewPaneTail(payload.tmuxPaneId, join(payload.projectPath, ".omc", "state"), tailLines)
+          ? getNewPaneTail(payload.tmuxPaneId, join(getOmcRoot(payload.projectPath), "state"), tailLines)
           : capturePaneContent(payload.tmuxPaneId, tailLines);
         if (rawTail) {
           payload.tmuxTail = rawTail;

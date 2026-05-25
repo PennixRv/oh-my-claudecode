@@ -1,3 +1,5 @@
+// Thin delegator → src/lib/worktree-paths.ts::resolveSessionStatePaths. DO NOT reimplement here.
+
 /**
  * State Root Resolver (CJS)
  *
@@ -42,4 +44,39 @@ async function resolveOmcStateRoot(directory) {
   return join(directory, '.omc');
 }
 
-module.exports = { resolveOmcStateRoot };
+/**
+ * Resolve session-scoped state paths for a given directory, state name, and session ID.
+ * Delegates to resolveSessionStatePaths() in dist/lib/worktree-paths.js.
+ *
+ * @param {string} directory - Worktree root directory
+ * @param {string} stateName - State name (e.g., "ralph", "ultrawork")
+ * @param {string} [sessionId] - Optional session identifier
+ * @returns {Promise<{readPath: string, writePath: string}>} Unbranded path pair
+ */
+async function resolveSessionStatePathsForHook(directory, stateName, sessionId) {
+  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+  if (pluginRoot) {
+    try {
+      const { pathToFileURL } = require('url');
+      const { resolveSessionStatePaths } = await import(
+        pathToFileURL(join(pluginRoot, 'dist', 'lib', 'worktree-paths.js')).href
+      );
+      const result = resolveSessionStatePaths(stateName, sessionId, directory);
+      return { readPath: result.effectiveRead, writePath: result.effectiveWrite };
+    } catch {
+      // dist not built or unavailable — fall through to inline fallback
+    }
+  }
+
+  // Inline fallback: basic session-scoped path derivation (production always uses dist above)
+  const omcRoot = await resolveOmcStateRoot(directory);
+  const normalizedName = stateName.endsWith('-state') ? stateName : `${stateName}-state`;
+  const legacy = join(omcRoot, 'state', `${normalizedName}.json`);
+  if (!sessionId) {
+    return { readPath: legacy, writePath: legacy };
+  }
+  const sessionScoped = join(omcRoot, 'state', 'sessions', sessionId, `${normalizedName}.json`);
+  return { readPath: sessionScoped, writePath: sessionScoped };
+}
+
+module.exports = { resolveOmcStateRoot, resolveSessionStatePathsForHook };

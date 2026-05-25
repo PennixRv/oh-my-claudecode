@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const SCRIPT_PATH = join(__dirname, '..', '..', '..', 'templates', 'hooks', 'session-start.mjs');
@@ -14,6 +14,8 @@ describe('session-start template guard for same-root parallel sessions (#1744)',
         fakeHome = join(tempDir, 'home');
         fakeProject = join(tempDir, 'project');
         mkdirSync(join(fakeProject, '.omc', 'state'), { recursive: true });
+        // Add .git so validateCwd accepts this directory as a valid workspace anchor
+        mkdirSync(join(fakeProject, '.git'), { recursive: true });
     });
     afterEach(() => {
         rmSync(tempDir, { recursive: true, force: true });
@@ -165,6 +167,191 @@ ${'- oversized startup guidance\n'.repeat(700)}
         expect(context).not.toContain('Do NOT pass the `model` parameter');
         expect(context).not.toContain('Omit it entirely');
         expect(context.length).toBeLessThanOrEqual(6000);
+    });
+});
+// ==========================================================================
+// E.2 — PID-aware liveness in session-start template (Wave E)
+// ==========================================================================
+describe('session-start PID-aware liveness (#E2)', () => {
+    const SCRIPT_PATH = join(__dirname, '..', '..', '..', 'templates', 'hooks', 'session-start.mjs');
+    const NODE = process.execPath;
+    let tempDir;
+    let fakeProject;
+    let fakeHome;
+    const now = new Date().toISOString();
+    beforeEach(() => {
+        tempDir = mkdtempSync(join(tmpdir(), 'omc-pid-liveness-'));
+        fakeHome = join(tempDir, 'home');
+        fakeProject = join(tempDir, 'project');
+        // validateCwd in session-start.mjs requires .git or .omc-workspace
+        mkdirSync(join(fakeProject, '.git'), { recursive: true });
+        mkdirSync(join(fakeProject, '.omc', 'state'), { recursive: true });
+    });
+    afterEach(() => {
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+    function runSessionStartPid(input, extraEnv = {}) {
+        const raw = execFileSync(NODE, [SCRIPT_PATH], {
+            input: JSON.stringify(input),
+            encoding: 'utf-8',
+            env: {
+                ...process.env,
+                HOME: fakeHome,
+                USERPROFILE: fakeHome,
+                ...extraEnv,
+            },
+            timeout: 15000,
+        }).trim();
+        return JSON.parse(raw);
+    }
+    it('PID-dead-reclaim: dead owner PID allows new session to reclaim without PARALLEL SESSION WARNING', () => {
+        // PID 999999 is virtually guaranteed to not exist
+        writeFileSync(join(fakeProject, '.omc', 'state', 'ultrawork-state.json'), JSON.stringify({
+            active: true,
+            session_id: 'old-sid',
+            owner_pid: 999999,
+            started_at: now,
+            last_checked_at: now,
+            original_prompt: 'Old task from dead process',
+        }));
+        const output = runSessionStartPid({
+            hook_event_name: 'SessionStart',
+            session_id: 'new-sid',
+            cwd: fakeProject,
+        });
+        const context = output.hookSpecificOutput?.additionalContext || '';
+        expect(output.continue).toBe(true);
+        // Owner is dead — no parallel session warning should be emitted
+        expect(context).not.toContain('[PARALLEL SESSION WARNING]');
+        // Restore should NOT be suppressed (dead owner = safe to reclaim)
+        expect(context).not.toContain('suppressed the restore');
+    });
+    it('owner PID alive: same-root different session emits PARALLEL SESSION WARNING', () => {
+        // process.pid is definitely alive
+        writeFileSync(join(fakeProject, '.omc', 'state', 'ultrawork-state.json'), JSON.stringify({
+            active: true,
+            session_id: 'owner-session',
+            owner_pid: process.pid,
+            started_at: now,
+            last_checked_at: now,
+            original_prompt: 'Live task',
+        }));
+        const output = runSessionStartPid({
+            hook_event_name: 'SessionStart',
+            session_id: 'intruder-session',
+            cwd: fakeProject,
+        });
+        const context = output.hookSpecificOutput?.additionalContext || '';
+        expect(output.continue).toBe(true);
+        expect(context).toContain('[PARALLEL SESSION WARNING]');
+    });
+    it('missing PID field: backward-compat assumes alive and emits PARALLEL SESSION WARNING', () => {
+        // No owner_pid field — backward-compat path
+        writeFileSync(join(fakeProject, '.omc', 'state', 'ultrawork-state.json'), JSON.stringify({
+            active: true,
+            session_id: 'legacy-session',
+            started_at: now,
+            last_checked_at: now,
+            original_prompt: 'Legacy no-pid task',
+        }));
+        const output = runSessionStartPid({
+            hook_event_name: 'SessionStart',
+            session_id: 'different-session',
+            cwd: fakeProject,
+        });
+        const context = output.hookSpecificOutput?.additionalContext || '';
+        expect(output.continue).toBe(true);
+        // Without a PID, the hook assumes alive → warning expected
+        expect(context).toContain('[PARALLEL SESSION WARNING]');
+    });
+});
+describe('session-start template cwd validation (Wave B1)', () => {
+    let tempDir;
+    let fakeHome;
+    let emptyCwd;
+    beforeEach(() => {
+        tempDir = mkdtempSync(join(tmpdir(), 'omc-session-start-cwdval-'));
+        fakeHome = join(tempDir, 'home');
+        mkdirSync(fakeHome, { recursive: true });
+        // A truly empty directory with no .omc-workspace or .git marker
+        emptyCwd = mkdtempSync(join(tmpdir(), 'omc-empty-cwd-'));
+    });
+    afterEach(() => {
+        rmSync(tempDir, { recursive: true, force: true });
+        rmSync(emptyCwd, { recursive: true, force: true });
+    });
+    function runSessionStartRaw(input, extraEnv = {}) {
+        const result = spawnSync(process.execPath, [SCRIPT_PATH], {
+            input: JSON.stringify(input),
+            encoding: 'utf-8',
+            env: {
+                ...process.env,
+                HOME: fakeHome,
+                USERPROFILE: fakeHome,
+                ...extraEnv,
+            },
+            timeout: 15000,
+        });
+        return {
+            stdout: result.stdout?.trim() ?? '',
+            stderr: result.stderr?.trim() ?? '',
+            status: result.status,
+        };
+    }
+    it('emits warning to stderr and outputs no-op JSON when cwd has no .omc-workspace or .git marker', () => {
+        // emptyCwd is a real temp dir with no markers — cross-platform guaranteed
+        const { stdout, stderr } = runSessionStartRaw({
+            hook_event_name: 'SessionStart',
+            session_id: 'session-empty-cwd',
+            cwd: emptyCwd,
+        });
+        // Must warn on stderr
+        expect(stderr).toContain('[OMC] session-start: refusing to use cwd');
+        expect(stderr).toContain('no .omc-workspace or .git marker');
+        // Output must be a valid JSON with continue:true and no hookSpecificOutput with state writes
+        const parsed = JSON.parse(stdout);
+        expect(parsed.continue).toBe(true);
+        expect(parsed.hookSpecificOutput).toBeUndefined();
+        // Must NOT have written any state files into the empty dir
+        expect(existsSync(join(emptyCwd, '.omc'))).toBe(false);
+    });
+    it('does NOT warn or skip when cwd contains a .git directory', () => {
+        const gitProject = mkdtempSync(join(tmpdir(), 'omc-git-project-'));
+        try {
+            mkdirSync(join(gitProject, '.git'), { recursive: true });
+            mkdirSync(join(gitProject, '.omc', 'state'), { recursive: true });
+            const { stderr, stdout } = runSessionStartRaw({
+                hook_event_name: 'SessionStart',
+                session_id: 'session-git-cwd',
+                cwd: gitProject,
+            });
+            // Should NOT emit the warning
+            expect(stderr).not.toContain('[OMC] session-start: refusing to use cwd');
+            // Should produce normal hook output (continue: true)
+            const parsed = JSON.parse(stdout);
+            expect(parsed.continue).toBe(true);
+        }
+        finally {
+            rmSync(gitProject, { recursive: true, force: true });
+        }
+    });
+    it('does NOT warn or skip when cwd contains a .omc-workspace marker', () => {
+        const wsProject = mkdtempSync(join(tmpdir(), 'omc-ws-project-'));
+        try {
+            writeFileSync(join(wsProject, '.omc-workspace'), '{}');
+            mkdirSync(join(wsProject, '.omc', 'state'), { recursive: true });
+            const { stderr, stdout } = runSessionStartRaw({
+                hook_event_name: 'SessionStart',
+                session_id: 'session-ws-cwd',
+                cwd: wsProject,
+            });
+            expect(stderr).not.toContain('[OMC] session-start: refusing to use cwd');
+            const parsed = JSON.parse(stdout);
+            expect(parsed.continue).toBe(true);
+        }
+        finally {
+            rmSync(wsProject, { recursive: true, force: true });
+        }
     });
 });
 //# sourceMappingURL=session-start-template.test.js.map

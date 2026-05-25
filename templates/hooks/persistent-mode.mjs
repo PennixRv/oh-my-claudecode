@@ -29,6 +29,7 @@ const { getClaudeConfigDir } = await import(pathToFileURL(join(__dirname, 'lib',
 const { readStdin } = await import(
   pathToFileURL(join(__dirname, "lib", "stdin.mjs")).href
 );
+const { resolveOmcStateRoot } = await import(pathToFileURL(join(__dirname, '..', '..', 'scripts', 'lib', 'state-root.mjs')).href);
 
 function readJsonFile(path) {
   try {
@@ -576,8 +577,9 @@ function countIncompleteTodos(sessionId, projectDir) {
   }
 
   // Project-local todos only
+  const projectOmcRoot = await resolveOmcStateRoot(projectDir);
   for (const path of [
-    join(projectDir, ".omc", "todos.json"),
+    join(projectOmcRoot, "todos.json"),
     join(projectDir, ".claude", "todos.json"),
   ]) {
     try {
@@ -776,7 +778,8 @@ async function main() {
     const sessionIdRaw = data.sessionId || data.session_id || data.sessionid || "";
     const sessionId = sanitizeSessionId(sessionIdRaw);
     const hasValidSessionId = isValidSessionId(sessionIdRaw);
-    const stateDir = join(directory, ".omc", "state");
+    const omcRoot = await resolveOmcStateRoot(directory);
+    const stateDir = join(omcRoot, "state");
     const globalStateDir = join(homedir(), ".omc", "state");
 
     // CRITICAL: Never block context-limit stops.

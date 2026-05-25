@@ -35,6 +35,7 @@ const __dirname = dirname(__filename);
 const { readStdin } = await import(pathToFileURL(join(__dirname, 'lib', 'stdin.mjs')).href);
 const { atomicWriteFileSync } = await import(pathToFileURL(join(__dirname, 'lib', 'atomic-write.mjs')).href);
 const { getClaudeConfigDir } = await import(pathToFileURL(join(__dirname, 'lib', 'config-dir.mjs')).href);
+const { resolveSessionStatePathsForHook } = await import(pathToFileURL(join(__dirname, '..', '..', 'scripts', 'lib', 'state-root.mjs')).href);
 
 
 const _omcRoot = process.env.CLAUDE_PLUGIN_ROOT || join(__dirname, '..');
@@ -636,7 +637,7 @@ function hasActionableRalplanKeyword(text, pattern) {
 // Create state file for a mode
 const SESSION_ID_ALLOWLIST = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,255}$/;
 
-function activateState(directory, prompt, stateName, sessionId) {
+async function activateState(directory, prompt, stateName, sessionId) {
   const now = new Date().toISOString();
   // Sanitize prompt BEFORE writing to state: prevents pasted system echoes
   // and oversized blobs from being persisted and re-emitted by Stop hook.
@@ -673,15 +674,13 @@ function activateState(directory, prompt, stateName, sessionId) {
   }
 
   // Write to session-scoped local path when sessionId is available (must match persistent-mode.mjs reads)
-  const stateDir = join(directory, '.omc', 'state');
   const safeSessionId = sessionId && SESSION_ID_ALLOWLIST.test(sessionId) ? sessionId : '';
-  const targetDir = safeSessionId
-    ? join(stateDir, 'sessions', safeSessionId)
-    : stateDir;
+  const { writePath } = await resolveSessionStatePathsForHook(directory, stateName, safeSessionId || undefined);
+  const targetDir = join(writePath, '..');
 
   try {
     if (!existsSync(targetDir)) mkdirSync(targetDir, { recursive: true });
-    atomicWriteFileSync(join(targetDir, `${stateName}-state.json`), JSON.stringify(state, null, 2));
+    atomicWriteFileSync(writePath, JSON.stringify(state, null, 2));
   } catch {}
 
   // Also write to global fallback
@@ -695,9 +694,9 @@ function activateState(directory, prompt, stateName, sessionId) {
 /**
  * Clear state files for cancel operation
  */
-function clearStateFiles(directory, modeNames) {
+async function clearStateFiles(directory, modeNames) {
   for (const name of modeNames) {
-    const localPath = join(directory, '.omc', 'state', `${name}-state.json`);
+    const { writePath: localPath } = await resolveSessionStatePathsForHook(directory, name, undefined);
     const globalPath = join(homedir(), '.omc', 'state', `${name}-state.json`);
     try { if (existsSync(localPath)) unlinkSync(localPath); } catch {}
     try { if (existsSync(globalPath)) unlinkSync(globalPath); } catch {}
@@ -708,17 +707,16 @@ function clearStateFiles(directory, modeNames) {
  * Link ralph and team state files for composition.
  * Updates both state files to reference each other.
  */
-function linkRalphTeam(directory, sessionId) {
-  const getStatePath = (modeName) => {
-    if (sessionId && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,255}$/.test(sessionId)) {
-      return join(directory, '.omc', 'state', 'sessions', sessionId, `${modeName}-state.json`);
-    }
-    return join(directory, '.omc', 'state', `${modeName}-state.json`);
+async function linkRalphTeam(directory, sessionId) {
+  const safeSessionId = sessionId && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,255}$/.test(sessionId) ? sessionId : undefined;
+  const getStatePath = async (modeName) => {
+    const { writePath } = await resolveSessionStatePathsForHook(directory, modeName, safeSessionId);
+    return writePath;
   };
 
   // Update ralph state with linked_team
   try {
-    const ralphPath = getStatePath('ralph');
+    const ralphPath = await getStatePath('ralph');
     if (existsSync(ralphPath)) {
       const state = JSON.parse(readFileSync(ralphPath, 'utf-8'));
       state.linked_team = true;
@@ -728,7 +726,7 @@ function linkRalphTeam(directory, sessionId) {
 
   // Update team state with linked_ralph
   try {
-    const teamPath = getStatePath('team');
+    const teamPath = await getStatePath('team');
     if (existsSync(teamPath)) {
       const state = JSON.parse(readFileSync(teamPath, 'utf-8'));
       state.linked_ralph = true;
@@ -1023,7 +1021,7 @@ async function main() {
 
     // Handle cancel specially - clear states and emit
     if (resolved.length > 0 && resolved[0].name === 'cancel') {
-      clearStateFiles(directory, ['ralph', 'autopilot', 'ultrawork']);
+      await clearStateFiles(directory, ['ralph', 'autopilot', 'ultrawork']);
       console.log(JSON.stringify(createHookOutput(createSkillInvocation('cancel', prompt))));
       return;
     }
@@ -1032,14 +1030,14 @@ async function main() {
     const sessionId = data.sessionId || data.session_id || data.sessionid || '';
     const stateModes = resolved.filter(m => ['ralph', 'autopilot', 'ultrawork'].includes(m.name));
     for (const mode of stateModes) {
-      activateState(directory, prompt, mode.name, sessionId);
+      await activateState(directory, prompt, mode.name, sessionId);
     }
 
     // Special: Ralph with ultrawork (ralph always includes ultrawork)
     const hasRalph = resolved.some(m => m.name === 'ralph');
     const hasUltrawork = resolved.some(m => m.name === 'ultrawork');
     if (hasRalph && !hasUltrawork) {
-      activateState(directory, prompt, 'ultrawork', sessionId);
+      await activateState(directory, prompt, 'ultrawork', sessionId);
     }
 
     const additionalContextParts = [];

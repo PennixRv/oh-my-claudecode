@@ -21,6 +21,7 @@ import { loadConfig } from '../../config/loader.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmuxExec } from '../tmux-utils.js';
+import { getOmcRoot } from '../../lib/worktree-paths.js';
 
 const HELP_TOKENS = new Set(['--help', '-h', 'help']);
 const MIN_WORKER_COUNT = 1;
@@ -245,7 +246,7 @@ function slugifyTask(task: string): string {
 
 export function resolveAvailableTeamName(baseName: string, cwd: string): string {
   const sanitizedBase = slugifyTask(baseName);
-  const stateRoot = join(cwd, '.omc', 'state', 'team');
+  const stateRoot = join(getOmcRoot(cwd), 'state', 'team');
   const teamDir = (name: string) => join(stateRoot, name);
   if (!existsSync(teamDir(sanitizedBase))) return sanitizedBase;
 

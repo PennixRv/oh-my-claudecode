@@ -16,6 +16,7 @@
  */
 import { readFileSync, readdirSync, existsSync, openSync, closeSync, unlinkSync, writeSync, statSync, constants as fsConstants } from 'fs';
 import { join } from 'path';
+import { getOmcRoot } from '../lib/worktree-paths.js';
 import { getClaudeConfigDir } from '../utils/config-dir.js';
 import { sanitizeName } from './tmux-session.js';
 import { atomicWriteJson, validateResolvedPath, ensureDirWithMode } from './fs-utils.js';
@@ -140,7 +141,7 @@ function sanitizeTaskId(taskId) {
 function canonicalTasksDir(teamName, cwd) {
     const root = cwd ?? process.cwd();
     const dir = getTaskStoragePath(root, sanitizeName(teamName));
-    validateResolvedPath(dir, join(root, '.omc', 'state', 'team'));
+    validateResolvedPath(dir, join(getOmcRoot(root), 'state', 'team'));
     return dir;
 }
 /**

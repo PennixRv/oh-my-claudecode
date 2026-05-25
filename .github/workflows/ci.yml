@@ -85,6 +85,27 @@ jobs:
           path: dist/
           retention-days: 7
 
+  multirepo-paths-gate:
+    name: Multi-repo Path Gate (AST-grep)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for raw .omc path constructions
+        run: node scripts/ci/check-multirepo-paths.mjs
+
   version-check:
     name: Version Consistency Check
     runs-on: ubuntu-latest

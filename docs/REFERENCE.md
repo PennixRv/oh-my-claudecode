@@ -109,6 +109,8 @@ If both configurations exist, **project-scoped takes precedence** over global:
 | `OMC_CODEX_DEFAULT_MODEL`  | _(provider default)_ | Default model for Codex CLI workers                                                                                                                                                                                                                                         |
 | `OMC_GEMINI_DEFAULT_MODEL` | _(provider default)_ | Default model for Gemini CLI workers                                                                                                                                                                                                                                        |
 | `OMC_LSP_TIMEOUT_MS`       | `15000`              | Timeout (ms) for LSP requests. Increase for large repos or slow language servers                                                                                                                                                                                            |
+| `OMC_MIGRATE_LEGACY_STATE` | _(unset)_            | Set to `1` to enable one-shot legacy→session-scoped state migration on next read. See [Legacy state migration](#legacy-state-migration-omc_migrate_legacy_state) below.                                                                                                      |
+| `OMC_DISABLE_MULTIREPO`    | _(unset)_            | Set to `1` to disable workspace-marker resolution and fall back to git-root + cwd resolution order. `OMC_STATE_DIR` is still honoured. See [Rollback / disable multi-repo](#rollback--disable-multi-repo-omc_disable_multirepo) below.                                       |
 | `DISABLE_OMC`              | _(unset)_            | Set to any value to disable all OMC hooks                                                                                                                                                                                                                                   |
 | `OMC_SKIP_HOOKS`           | _(unset)_            | Comma-separated list of hook names to skip                                                                                                                                                                                                                                  |
 
@@ -124,6 +126,109 @@ export OMC_STATE_DIR="$HOME/.claude/omc"
 This resolves to `~/.claude/omc/{project-identifier}/` where the project identifier uses a hash of the git remote URL (stable across worktrees/clones) with a fallback to the directory path hash for local-only repos.
 
 If both a legacy `{worktree}/.omc/` directory and a centralized directory exist, OMC logs a notice and uses the centralized directory. You can then migrate data from the legacy directory and remove it.
+
+#### Multi-repo workspaces with `.omc-workspace`
+
+When you have several independent git repos under one parent directory and the parent itself is **not** a git repo, OMC cannot infer a shared root via `git rev-parse --show-toplevel`. Each sub-repo would get its own isolated `.omc/`. To anchor a single `.omc/` at the parent, drop a `.omc-workspace` marker file there:
+
+```bash
+cd /path/to/my-workspace            # parent dir (not a git repo)
+echo '{}' > .omc-workspace          # empty JSON is fine
+```
+
+From any sub-directory (including inside any sub-git-repo), OMC resolves `.omc/` to `/path/to/my-workspace/.omc/`. The marker may also carry an explicit project identifier so all sessions share state regardless of the parent dir name:
+
+```json
+{ "id": "my-org-bidchex" }
+```
+
+Resolution order inside `getOmcRoot()`:
+
+1. `OMC_STATE_DIR` (centralized).
+2. `.omc-workspace` marker (multi-repo workspace).
+3. `git rev-parse --show-toplevel` (monorepo / single repo).
+4. `process.cwd()` (last resort).
+
+Once a workspace is anchored, multiple Claude Code sessions in different sub-repos can run `/ultragoal`, `/ralph`, `/ultrawork`, `/autopilot` in parallel without bleeding state. For `/ultragoal` specifically, pass `--plan-id <id>` or `--auto-plan-id` on `create-goals` so each session writes to `.omc/ultragoal/plans/{planId}/` instead of the shared `goals.json` — see "ultragoal multi-plan" below. The PARALLEL SESSION WARNING in `session-start.mjs` performs a PID-aware liveness check and no longer suppresses restore when the owner session is dead.
+
+#### `.omc/handoffs/` shared contract
+
+`.omc/handoffs/` is intentionally **shared across team runs** by design. Its purpose is inter-session message passing: team stage handoffs (plan → prd → exec → verify) accumulate here so a later `team` run can resume from the last non-terminal stage without losing decision history.
+
+**Only the `team` skill writes to `.omc/handoffs/`.** All other code that reads the directory does so read-only. This is enforced by the lint test `tests/lint/handoffs-writers.test.ts`, which scans `src/**` and `templates/**` and fails if any file outside `src/team/` or `src/hooks/team-pipeline/` references `handoffs/` as a write target.
+
+- Handoff files survive `TeamDelete` and session cancellation intentionally — they are post-mortem artifacts.
+- Do **not** session-scope `.omc/handoffs/` unless the `team` skill explicitly evolves to per-session inboxes (tracked as a follow-up in the ADR).
+
+#### Branded path types (`ReadPath` / `WritePath`)
+
+State-file path resolution returns a branded struct from `resolveSessionStatePaths()` in `src/lib/worktree-paths.ts`:
+
+```ts
+interface SessionStatePaths {
+  sessionScoped: string;
+  legacy: string;
+  effectiveRead: ReadPath;   // string & { __brand: 'ReadPath' }
+  effectiveWrite: WritePath; // string & { __brand: 'WritePath' }
+}
+```
+
+The brand prevents a hook from silently passing a read-fallback path to a writer (or vice versa) — TypeScript rejects the cross-assignment at compile time. The only legitimate producer of the brand is `resolveSessionStatePaths()` itself; an ESLint `no-restricted-syntax` rule in `eslint.config.js` blocks `as ReadPath` / `as WritePath` casts anywhere outside `worktree-paths.ts` and its tests. Compile-time regression guard at `src/lib/__tests__/session-state-paths.type-test.ts`.
+
+#### Legacy state migration (`OMC_MIGRATE_LEGACY_STATE`)
+
+When you adopt `OMC_STATE_DIR` or `.omc-workspace` on a repo that already has existing `{worktree}/.omc/state/` files, you can opt in to a one-shot copy of legacy state into the new session-scoped path:
+
+```bash
+export OMC_MIGRATE_LEGACY_STATE=1
+```
+
+Semantics:
+- **Trigger**: checked once per state-file read by callers that wrap their write through the migration helper.
+- **Operation**: copies `{omcRoot}/state/{name}-state.json` → `{omcRoot}/state/sessions/{sessionId}/{name}-state.json` using an atomic `.migrating` sentinel + rename for crash recovery.
+- **Idempotent**: a second run with the flag set is a no-op if the session-scoped file already exists.
+- **Opt-in only**: never triggers automatically; only when `OMC_MIGRATE_LEGACY_STATE=1` is set.
+- **No auto-trigger**: do not set this permanently in your shell profile; set it once for the migration session, then unset it.
+
+#### Rollback / disable multi-repo (`OMC_DISABLE_MULTIREPO`)
+
+If the workspace-marker resolution causes unexpected behaviour (e.g., after dropping a stale `.omc-workspace` marker), you can disable multi-repo path resolution in one env-var flip:
+
+```bash
+export OMC_DISABLE_MULTIREPO=1
+```
+
+Exact semantics:
+- **Skips** `.omc-workspace` marker detection — `findWorkspaceRoot()` returns `null` immediately.
+- **Falls back** to the standard `git rev-parse --show-toplevel` → `process.cwd()` resolution order.
+- **Preserves** `OMC_STATE_DIR` if set — centralized state storage still works.
+- **Scope**: per-process; set in the shell session where you run `claude`, not project-wide.
+
+To restore multi-repo behaviour, unset the variable:
+
+```bash
+unset OMC_DISABLE_MULTIREPO
+```
+
+#### Ultragoal multi-plan layout
+
+Default layout (single plan, monorepo / single session):
+
+```
+.omc/ultragoal/brief.md
+.omc/ultragoal/goals.json
+.omc/ultragoal/ledger.jsonl
+```
+
+Multi-plan layout, enabled by `--plan-id <id>` or `--auto-plan-id` on `omc ultragoal create-goals`:
+
+```
+.omc/ultragoal/plans/{planId}/brief.md
+.omc/ultragoal/plans/{planId}/goals.json
+.omc/ultragoal/plans/{planId}/ledger.jsonl
+```
+
+`--auto-plan-id` derives `{epochMs}-{slug}` from the brief title, so two parallel sessions running `omc ultragoal create-goals --auto-plan-id ...` never collide. Subsequent commands (`status`, `add-goal`, `complete-goals`, `checkpoint`, `record-review-blockers`) auto-resolve the plan when there is exactly one; when there are multiple, they require `--plan-id <id>`. `omc ultragoal list-plans` enumerates the available plan ids.
 
 ### When to Re-run Setup
 

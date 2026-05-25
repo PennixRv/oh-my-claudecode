@@ -51,7 +51,7 @@ vi.mock('../features/builtin-skills/skills.js', () => ({
     },
 }));
 // Import after mock setup
-import { checkHookConflicts, checkClaudeMdStatus, checkConfigIssues, checkLegacySkills, runConflictCheck, } from '../cli/commands/doctor-conflicts.js';
+import { checkHookConflicts, checkClaudeMdStatus, checkConfigIssues, checkLegacySkills, checkWorkspaceMarker, runConflictCheck, } from '../cli/commands/doctor-conflicts.js';
 describe('doctor-conflicts: hook ownership classification', () => {
     let cwdSpy;
     beforeEach(() => {
@@ -601,6 +601,97 @@ describe('doctor-conflicts: config known fields (issue #1499)', () => {
         }, null, 2));
         expect(checkConfigIssues().unknownFields).toEqual(['totallyMadeUpKey', 'anotherUnknown']);
         expect(runConflictCheck().hasConflicts).toBe(true);
+    });
+});
+describe('doctor-conflicts: workspace marker check (Wave F.2)', () => {
+    let cwdSpy;
+    let savedOmcStateDir;
+    let tempDir;
+    beforeEach(() => {
+        for (const dir of [TEST_CLAUDE_DIR, TEST_PROJECT_DIR]) {
+            if (dir && existsSync(dir)) {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        }
+        resetTestDirs();
+        mkdirSync(TEST_PROJECT_CLAUDE_DIR, { recursive: true });
+        process.env.CLAUDE_CONFIG_DIR = TEST_CLAUDE_DIR;
+        process.env.CLAUDE_MCP_CONFIG_PATH = join(TEST_CLAUDE_DIR, '..', '.claude.json');
+        cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(TEST_PROJECT_DIR);
+        savedOmcStateDir = process.env.OMC_STATE_DIR;
+        delete process.env.OMC_STATE_DIR;
+        tempDir = mkdtempSync(join(tmpdir(), 'omc-ws-marker-test-'));
+    });
+    afterEach(() => {
+        cwdSpy?.mockRestore();
+        delete process.env.CLAUDE_CONFIG_DIR;
+        delete process.env.CLAUDE_MCP_CONFIG_PATH;
+        if (savedOmcStateDir === undefined) {
+            delete process.env.OMC_STATE_DIR;
+        }
+        else {
+            process.env.OMC_STATE_DIR = savedOmcStateDir;
+        }
+        for (const dir of [TEST_CLAUDE_DIR, TEST_PROJECT_DIR]) {
+            if (dir && existsSync(dir)) {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        }
+        if (existsSync(tempDir)) {
+            rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+    it('reports markerRoot null when no .omc-workspace marker exists', () => {
+        cwdSpy.mockReturnValue(tempDir);
+        const status = checkWorkspaceMarker();
+        expect(status.markerRoot).toBeNull();
+        expect(status.stateDirEnvSet).toBe(false);
+        expect(status.precedenceConflict).toBe(false);
+    });
+    it('reports markerRoot when .omc-workspace marker is present', () => {
+        writeFileSync(join(tempDir, '.omc-workspace'), '{}');
+        cwdSpy.mockReturnValue(tempDir);
+        const status = checkWorkspaceMarker();
+        expect(status.markerRoot).toBe(tempDir);
+        expect(status.stateDirEnvSet).toBe(false);
+        expect(status.precedenceConflict).toBe(false);
+    });
+    it('reports stateDirEnvSet when OMC_STATE_DIR is set', () => {
+        process.env.OMC_STATE_DIR = '/some/centralized/state';
+        cwdSpy.mockReturnValue(tempDir);
+        const status = checkWorkspaceMarker();
+        expect(status.stateDirEnvSet).toBe(true);
+        expect(status.stateDirEnvValue).toBe('/some/centralized/state');
+        expect(status.markerRoot).toBeNull();
+        expect(status.precedenceConflict).toBe(false);
+    });
+    it('emits precedenceConflict when both OMC_STATE_DIR and .omc-workspace are active', () => {
+        writeFileSync(join(tempDir, '.omc-workspace'), '{}');
+        process.env.OMC_STATE_DIR = '/centralized/override';
+        cwdSpy.mockReturnValue(tempDir);
+        const status = checkWorkspaceMarker();
+        expect(status.markerRoot).toBe(tempDir);
+        expect(status.stateDirEnvSet).toBe(true);
+        expect(status.precedenceConflict).toBe(true);
+    });
+    it('precedenceConflict does NOT count as a hard hasConflicts flag in runConflictCheck', () => {
+        // precedenceConflict is a WARN, not a hard conflict — hasConflicts should stay false
+        writeFileSync(join(tempDir, '.omc-workspace'), '{}');
+        process.env.OMC_STATE_DIR = '/centralized/override';
+        cwdSpy.mockReturnValue(tempDir);
+        const report = runConflictCheck();
+        // workspaceMarker.precedenceConflict is true
+        expect(report.workspaceMarker.precedenceConflict).toBe(true);
+        // but hasConflicts only reflects hook/skill/env/config issues, not the workspace precedence warn
+        expect(report.hasConflicts).toBe(false);
+    });
+    it('runConflictCheck includes workspaceMarker in the report', () => {
+        cwdSpy.mockReturnValue(tempDir);
+        const report = runConflictCheck();
+        expect(report.workspaceMarker).toBeDefined();
+        expect(typeof report.workspaceMarker.markerRoot).toBe('object'); // null is valid
+        expect(typeof report.workspaceMarker.stateDirEnvSet).toBe('boolean');
+        expect(typeof report.workspaceMarker.precedenceConflict).toBe('boolean');
     });
 });
 //# sourceMappingURL=doctor-conflicts.test.js.map

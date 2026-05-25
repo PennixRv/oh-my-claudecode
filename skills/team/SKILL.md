@@ -1062,3 +1062,10 @@ MCP workers can operate in isolated git worktrees to prevent file conflicts betw
 10. **Broadcast is expensive** -- Each broadcast sends a separate message to every teammate. Use `message` (DM) by default. Only broadcast for truly team-wide critical alerts.
 
 11. **CLI workers are one-shot, not persistent** -- Tmux CLI workers have full filesystem access and CAN make code changes. However, they run as autonomous one-shot jobs -- they cannot use TaskList/TaskUpdate/SendMessage. The lead must manage their lifecycle: write prompt_file, spawn CLI worker, read output_file, mark task complete. They don't participate in team communication like Claude teammates do.
+
+## Parallel session caveats
+
+- **Multi-repo workspace anchor:** drop a `.omc-workspace` marker at the parent directory so multiple sessions across sub-repos share one `.omc/`. Resolution order: `OMC_STATE_DIR > .omc-workspace > git > cwd`. See `docs/REFERENCE.md`.
+- **Session id source:** OMC_SESSION_ID env var wins in CLI contexts; hook payload data.session_id wins in hook contexts.
+- **Plan id (when applicable):** Team state is session-scoped. Team handoffs at `.omc/handoffs/` are shared by design (see Wave G in the workspace plan).
+- **Parallel verdict:** supported (session-scoped + shared handoffs by design)

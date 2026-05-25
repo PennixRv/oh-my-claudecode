@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdirSync, rmSync, existsSync, mkdtempSync } from 'fs';
+import { mkdirSync, rmSync, existsSync, mkdtempSync, writeFileSync, symlinkSync } from 'fs';
 import { execSync } from 'child_process';
-import { join, basename } from 'path';
+import { join, basename, resolve } from 'path';
+import { tmpdir } from 'os';
 import {
   validatePath,
   resolveOmcPath,
@@ -25,9 +26,25 @@ import {
   getWorktreeRoot,
   getProjectIdentifier,
   clearDualDirWarnings,
+  findWorkspaceRoot,
+  readWorkspaceMarkerConfig,
 } from '../worktree-paths.js';
 
-const TEST_DIR = '/tmp/worktree-paths-test';
+// Check once at module load whether symlinks can be created (needs admin / Developer Mode on Windows)
+let canSymlink = false;
+try {
+  const probe = join(tmpdir(), `omc-symlink-probe-${process.pid}`);
+  const probeTarget = join(tmpdir(), `omc-symlink-target-${process.pid}`);
+  mkdirSync(probeTarget, { recursive: true });
+  symlinkSync(probeTarget, probe, 'dir');
+  rmSync(probe);
+  rmSync(probeTarget, { recursive: true, force: true });
+  canSymlink = true;
+} catch {
+  canSymlink = false;
+}
+
+const TEST_DIR = join(tmpdir(), 'worktree-paths-test');
 
 describe('worktree-paths', () => {
   beforeEach(() => {
@@ -179,7 +196,7 @@ describe('worktree-paths', () => {
 
     it('should fall back and log for non-git directories', () => {
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-      const nonGitDir = mkdtempSync('/tmp/worktree-paths-nongit-');
+      const nonGitDir = mkdtempSync(join(tmpdir(), 'worktree-paths-nongit-'));
 
       const result = resolveToWorktreeRoot(nonGitDir);
 
@@ -197,7 +214,7 @@ describe('worktree-paths', () => {
 
     it('should handle bare repositories by falling back and logging', () => {
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-      const bareRepoDir = mkdtempSync('/tmp/worktree-paths-bare-');
+      const bareRepoDir = mkdtempSync(join(tmpdir(), 'worktree-paths-bare-'));
       execSync('git init --bare', { cwd: bareRepoDir, stdio: 'pipe' });
 
       const result = resolveToWorktreeRoot(bareRepoDir);
@@ -231,12 +248,13 @@ describe('worktree-paths', () => {
     });
 
     it('should throw for directories outside the trusted root', () => {
-      // /etc is outside any repo worktree root
-      expect(() => validateWorkingDirectory('/etc')).toThrow('outside the trusted worktree root');
+      // tmpdir() is outside any repo worktree root and exists on every platform
+      // (avoids '/etc' which is Linux-only and triggers ENOENT on Windows).
+      expect(() => validateWorkingDirectory(tmpdir())).toThrow('outside the trusted worktree root');
     });
 
     it('should reject a workingDirectory that resolves to a different git root', () => {
-      const nestedRepoDir = mkdtempSync('/tmp/worktree-paths-nested-');
+      const nestedRepoDir = mkdtempSync(join(tmpdir(), 'worktree-paths-nested-'));
       execSync('git init', { cwd: nestedRepoDir, stdio: 'pipe' });
 
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -322,7 +340,7 @@ describe('worktree-paths', () => {
     });
 
     it('should return different results for different directories', () => {
-      const dir2 = mkdtempSync('/tmp/worktree-paths-other-');
+      const dir2 = mkdtempSync(join(tmpdir(), 'worktree-paths-other-'));
       try {
         const id1 = getProjectIdentifier(TEST_DIR);
         const id2 = getProjectIdentifier(dir2);
@@ -334,7 +352,7 @@ describe('worktree-paths', () => {
 
     it('should use git remote URL when available (stable across worktrees)', () => {
       // Create a git repo with a remote
-      const repoDir = mkdtempSync('/tmp/worktree-paths-remote-');
+      const repoDir = mkdtempSync(join(tmpdir(), 'worktree-paths-remote-'));
       try {
         execSync('git init', { cwd: repoDir, stdio: 'pipe' });
         execSync('git remote add origin https://github.com/test/my-repo.git', {
@@ -347,7 +365,7 @@ describe('worktree-paths', () => {
         expect(id).toMatch(/^[a-zA-Z0-9_-]+-[a-f0-9]{16}$/);
 
         // Create a second repo with the same remote — should produce the same hash
-        const repoDir2 = mkdtempSync('/tmp/worktree-paths-remote2-');
+        const repoDir2 = mkdtempSync(join(tmpdir(), 'worktree-paths-remote2-'));
         try {
           execSync('git init', { cwd: repoDir2, stdio: 'pipe' });
           execSync('git remote add origin https://github.com/test/my-repo.git', {
@@ -370,7 +388,7 @@ describe('worktree-paths', () => {
     });
 
     it('should fall back to path hash for repos without remotes', () => {
-      const repoDir = mkdtempSync('/tmp/worktree-paths-noremote-');
+      const repoDir = mkdtempSync(join(tmpdir(), 'worktree-paths-noremote-'));
       try {
         execSync('git init', { cwd: repoDir, stdio: 'pipe' });
         clearWorktreeCache();
@@ -383,7 +401,7 @@ describe('worktree-paths', () => {
     });
 
     it('should sanitize special characters in directory names', () => {
-      const specialDir = '/tmp/worktree paths test!@#';
+      const specialDir = join(tmpdir(), 'worktree paths test!@#');
       mkdirSync(specialDir, { recursive: true });
       try {
         const id = getProjectIdentifier(specialDir);
@@ -399,7 +417,7 @@ describe('worktree-paths', () => {
     });
 
     it('should produce identical identifiers for linked worktrees of the same repo', () => {
-      const primaryDir = mkdtempSync('/tmp/worktree-paths-primary-');
+      const primaryDir = mkdtempSync(join(tmpdir(), 'worktree-paths-primary-'));
       const worktreeDir = `${primaryDir}-linked`;
       try {
         // Set up a primary repo with a commit so worktree creation works
@@ -439,8 +457,8 @@ describe('worktree-paths', () => {
     });
 
     it('should not change identifier for submodules (avoid .git/modules resolution)', () => {
-      const parentDir = mkdtempSync('/tmp/worktree-paths-submod-parent-');
-      const subDir = mkdtempSync('/tmp/worktree-paths-submod-child-');
+      const parentDir = mkdtempSync(join(tmpdir(), 'worktree-paths-submod-parent-'));
+      const subDir = mkdtempSync(join(tmpdir(), 'worktree-paths-submod-child-'));
       try {
         // Create a repo to use as the submodule source
         execSync('git init', { cwd: subDir, stdio: 'pipe' });
@@ -477,7 +495,7 @@ describe('worktree-paths', () => {
     });
 
     it('should not change identifier for bare repos (avoid dirname going to parent)', () => {
-      const parentDir = mkdtempSync('/tmp/worktree-paths-bare-parent-');
+      const parentDir = mkdtempSync(join(tmpdir(), 'worktree-paths-bare-parent-'));
       const bareDir = `${parentDir}/my-bare-repo.git`;
       try {
         execSync(`git init --bare "${bareDir}"`, { stdio: 'pipe' });
@@ -502,7 +520,7 @@ describe('worktree-paths', () => {
     });
 
     it('should return centralized path when OMC_STATE_DIR is set', () => {
-      const stateDir = mkdtempSync('/tmp/omc-state-dir-');
+      const stateDir = mkdtempSync(join(tmpdir(), 'omc-state-dir-'));
       try {
         process.env.OMC_STATE_DIR = stateDir;
         const result = getOmcRoot(TEST_DIR);
@@ -515,7 +533,7 @@ describe('worktree-paths', () => {
     });
 
     it('should log warning when both legacy and centralized dirs exist', () => {
-      const stateDir = mkdtempSync('/tmp/omc-state-dir-');
+      const stateDir = mkdtempSync(join(tmpdir(), 'omc-state-dir-'));
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
       try {
         process.env.OMC_STATE_DIR = stateDir;
@@ -541,7 +559,7 @@ describe('worktree-paths', () => {
     });
 
     it('should not log warning when only centralized dir exists', () => {
-      const stateDir = mkdtempSync('/tmp/omc-state-dir-');
+      const stateDir = mkdtempSync(join(tmpdir(), 'omc-state-dir-'));
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
       try {
         process.env.OMC_STATE_DIR = stateDir;
@@ -561,7 +579,7 @@ describe('worktree-paths', () => {
     });
 
     it('should only log dual-dir warning once per path pair', () => {
-      const stateDir = mkdtempSync('/tmp/omc-state-dir-');
+      const stateDir = mkdtempSync(join(tmpdir(), 'omc-state-dir-'));
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
       try {
         process.env.OMC_STATE_DIR = stateDir;
@@ -588,7 +606,7 @@ describe('worktree-paths', () => {
     let stateDir: string;
 
     beforeEach(() => {
-      stateDir = mkdtempSync('/tmp/omc-state-dir-paths-');
+      stateDir = mkdtempSync(join(tmpdir(), 'omc-state-dir-paths-'));
       process.env.OMC_STATE_DIR = stateDir;
     });
 
@@ -677,5 +695,165 @@ describe('worktree-paths', () => {
       expect(result).toBe(join(stateDir, projectId, 'state'));
       expect(existsSync(result)).toBe(true);
     });
+  });
+
+  describe('workspace marker (.omc-workspace)', () => {
+    // Use resolve() so expectations match getOmcRoot's internally-resolved path
+    // (relevant on Windows where /tmp/... is non-absolute until resolved).
+    let workspaceDir: string;
+    let subrepoDir: string;
+
+    beforeEach(() => {
+      clearWorktreeCache();
+      workspaceDir = resolve(mkdtempSync(join(TEST_DIR, 'workspace-')));
+      subrepoDir = join(workspaceDir, 'api');
+      mkdirSync(subrepoDir, { recursive: true });
+    });
+
+    it('getOmcRoot ignores marker when absent (regression: monorepo flow unchanged)', () => {
+      const result = getOmcRoot(workspaceDir);
+      expect(result).toBe(join(workspaceDir, '.omc'));
+    });
+
+    it('getOmcRoot anchors to marker dir when marker exists in cwd', () => {
+      const fs = require('node:fs');
+      fs.writeFileSync(join(workspaceDir, '.omc-workspace'), '');
+      clearWorktreeCache();
+      const result = getOmcRoot(workspaceDir);
+      expect(result).toBe(join(workspaceDir, '.omc'));
+    });
+
+    it('getOmcRoot walks up from subdir to find marker', () => {
+      const fs = require('node:fs');
+      fs.writeFileSync(join(workspaceDir, '.omc-workspace'), '');
+      clearWorktreeCache();
+      const result = getOmcRoot(subrepoDir);
+      expect(result).toBe(join(workspaceDir, '.omc'));
+    });
+
+    it('getOmcRoot prefers marker over a sub-git-repo root', () => {
+      const fs = require('node:fs');
+      fs.writeFileSync(join(workspaceDir, '.omc-workspace'), '');
+      try {
+        execSync('git init -q', { cwd: subrepoDir, stdio: 'ignore' });
+      } catch {
+        return; // git unavailable — skip
+      }
+      clearWorktreeCache();
+      const result = getOmcRoot(subrepoDir);
+      expect(result).toBe(join(workspaceDir, '.omc'));
+    });
+
+    it('getProjectIdentifier honors explicit id from marker', () => {
+      const fs = require('node:fs');
+      fs.writeFileSync(
+        join(workspaceDir, '.omc-workspace'),
+        JSON.stringify({ id: 'bidchex' }),
+      );
+      clearWorktreeCache();
+      const id = getProjectIdentifier(subrepoDir);
+      expect(id).toMatch(/^bidchex-[a-f0-9]{16}$/);
+    });
+
+    it('getProjectIdentifier derives stable id from workspace path when marker has no id', () => {
+      const fs = require('node:fs');
+      fs.writeFileSync(join(workspaceDir, '.omc-workspace'), '{}');
+      clearWorktreeCache();
+      const id1 = getProjectIdentifier(subrepoDir);
+      clearWorktreeCache();
+      const id2 = getProjectIdentifier(workspaceDir);
+      expect(id1).toBe(id2);
+      expect(id1.startsWith(basename(workspaceDir))).toBe(true);
+    });
+  });
+
+  // ==========================================================================
+  // E.1 — Workspace marker edge cases (Wave E)
+  // ==========================================================================
+
+  describe('workspace marker edge cases', () => {
+    let rootA: string;
+
+    beforeEach(() => {
+      clearWorktreeCache();
+      rootA = resolve(mkdtempSync(join(tmpdir(), 'omc-ws-edge-A-')));
+    });
+
+    afterEach(() => {
+      rmSync(rootA, { recursive: true, force: true });
+    });
+
+    it('nested markers: inner workspace wins over outer', () => {
+      // Structure: rootA/.omc-workspace  AND  rootA/B/.omc-workspace
+      // findWorkspaceRoot from rootA/B/sub/ should return rootA/B (inner wins)
+      const innerB = join(rootA, 'B');
+      const sub = join(innerB, 'sub');
+      mkdirSync(sub, { recursive: true });
+
+      writeFileSync(join(rootA, '.omc-workspace'), '');
+      writeFileSync(join(innerB, '.omc-workspace'), '');
+
+      clearWorktreeCache();
+      const found = findWorkspaceRoot(sub);
+      expect(found).toBe(innerB);
+    });
+
+    it('OMC_STATE_DIR overrides workspace marker: getOmcRoot returns centralized path', () => {
+      const stateDir = mkdtempSync(join(tmpdir(), 'omc-state-override-'));
+      try {
+        // Drop a workspace marker — without OMC_STATE_DIR it would steer to rootA/.omc
+        writeFileSync(join(rootA, '.omc-workspace'), '');
+        clearWorktreeCache();
+
+        process.env.OMC_STATE_DIR = stateDir;
+        const result = getOmcRoot(rootA);
+
+        // Must use centralized path, not the workspace-anchored .omc
+        expect(result).not.toBe(join(rootA, '.omc'));
+        expect(result.startsWith(stateDir)).toBe(true);
+      } finally {
+        delete process.env.OMC_STATE_DIR;
+        rmSync(stateDir, { recursive: true, force: true });
+      }
+    });
+
+    it('invalid JSON in marker: readWorkspaceMarkerConfig returns {} gracefully', () => {
+      writeFileSync(join(rootA, '.omc-workspace'), '{ not valid json !!!');
+      expect(() => readWorkspaceMarkerConfig(rootA)).not.toThrow();
+      const cfg = readWorkspaceMarkerConfig(rootA);
+      expect(cfg).toEqual({});
+    });
+
+    it('special chars in marker id are sanitized', () => {
+      writeFileSync(
+        join(rootA, '.omc-workspace'),
+        JSON.stringify({ id: 'bidchex@v2/main' }),
+      );
+      clearWorktreeCache();
+      const id = getProjectIdentifier(rootA);
+      // Special chars replaced with underscores — no @, /, or other non-alnum chars
+      expect(id).toMatch(/^[a-zA-Z0-9_-]+-[a-f0-9]{16}$/);
+      expect(id).not.toContain('@');
+      expect(id).not.toContain('/');
+    });
+
+    it.skipIf(process.platform === 'win32' && !canSymlink)(
+      'symlinked workspace root: findWorkspaceRoot resolves through symlink',
+      () => {
+        const realDir = mkdtempSync(join(tmpdir(), 'omc-ws-real-'));
+        const linkDir = join(tmpdir(), `omc-ws-link-${process.pid}`);
+        try {
+          writeFileSync(join(realDir, '.omc-workspace'), '');
+          symlinkSync(realDir, linkDir, 'dir');
+          clearWorktreeCache();
+          // Walk from the symlink — should still find the marker
+          const found = findWorkspaceRoot(linkDir);
+          expect(found).not.toBeNull();
+        } finally {
+          try { rmSync(linkDir); } catch { /* ignore */ }
+          rmSync(realDir, { recursive: true, force: true });
+        }
+      },
+    );
   });
 });

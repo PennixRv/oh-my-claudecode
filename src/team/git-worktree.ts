@@ -19,6 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { atomicWriteJson, ensureDirWithMode, validateResolvedPath } from './fs-utils.js';
 import { sanitizeName } from './tmux-session.js';
 import { withFileLockSync } from '../lib/file-lock.js';
+import { getOmcRoot } from '../lib/worktree-paths.js';
 
 export type TeamWorktreeMode = 'disabled' | 'detached' | 'named';
 
@@ -84,7 +85,7 @@ export interface WorktreeRootAgentsRestoreResult {
 
 /** Get canonical native team worktree path for a worker. */
 export function getWorktreePath(repoRoot: string, teamName: string, workerName: string): string {
-  return join(repoRoot, '.omc', 'team', sanitizeName(teamName), 'worktrees', sanitizeName(workerName));
+  return join(getOmcRoot(repoRoot), 'team', sanitizeName(teamName), 'worktrees', sanitizeName(workerName));
 }
 
 /** Get branch name for a worker. */
@@ -207,16 +208,16 @@ function isWorktreeDirtyExcept(wtPath: string, ignoredRootPaths: string[] = []):
 
 /** Get worktree metadata path. */
 function getMetadataPath(repoRoot: string, teamName: string): string {
-  return join(repoRoot, '.omc', 'state', 'team', sanitizeName(teamName), 'worktrees.json');
+  return join(getOmcRoot(repoRoot), 'state', 'team', sanitizeName(teamName), 'worktrees.json');
 }
 
 function getLegacyMetadataPath(repoRoot: string, teamName: string): string {
-  return join(repoRoot, '.omc', 'state', 'team-bridge', sanitizeName(teamName), 'worktrees.json');
+  return join(getOmcRoot(repoRoot), 'state', 'team-bridge', sanitizeName(teamName), 'worktrees.json');
 }
 
 
 function getWorkerStateDir(repoRoot: string, teamName: string, workerName: string): string {
-  return join(repoRoot, '.omc', 'state', 'team', sanitizeName(teamName), 'workers', sanitizeName(workerName));
+  return join(getOmcRoot(repoRoot), 'state', 'team', sanitizeName(teamName), 'workers', sanitizeName(workerName));
 }
 
 function getRootAgentsBackupPath(repoRoot: string, teamName: string, workerName: string): string {
@@ -354,7 +355,7 @@ function readMetadata(repoRoot: string, teamName: string): WorktreeInfo[] {
 
 
 function listRootAgentsBackupIssues(repoRoot: string, teamName: string, entries: WorktreeInfo[]): WorktreeMetadataReadIssue[] {
-  const workersDir = join(repoRoot, '.omc', 'state', 'team', sanitizeName(teamName), 'workers');
+  const workersDir = join(getOmcRoot(repoRoot), 'state', 'team', sanitizeName(teamName), 'workers');
   if (!existsSync(workersDir)) return [];
   const knownWorkers = new Set(entries.map((entry) => sanitizeName(entry.workerName)));
   const issues: WorktreeMetadataReadIssue[] = [];
@@ -382,7 +383,7 @@ function listRootAgentsBackupIssues(repoRoot: string, teamName: string, entries:
 function writeMetadata(repoRoot: string, teamName: string, entries: WorktreeInfo[]): void {
   const metaPath = getMetadataPath(repoRoot, teamName);
   validateResolvedPath(metaPath, repoRoot);
-  ensureDirWithMode(join(repoRoot, '.omc', 'state', 'team', sanitizeName(teamName)));
+  ensureDirWithMode(join(getOmcRoot(repoRoot), 'state', 'team', sanitizeName(teamName)));
   atomicWriteJson(metaPath, entries);
 }
 
@@ -485,7 +486,7 @@ export function ensureWorkerWorktree(
     return info;
   }
 
-  const wtDir = join(repoRoot, '.omc', 'team', sanitizeName(teamName), 'worktrees');
+  const wtDir = join(getOmcRoot(repoRoot), 'team', sanitizeName(teamName), 'worktrees');
   ensureDirWithMode(wtDir);
 
   const args = mode === 'named'

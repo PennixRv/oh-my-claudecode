@@ -8,6 +8,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { getClaudeConfigDir } from '../utils/config-dir.js';
+import { getOmcRoot } from '../lib/worktree-paths.js';
 import { sanitizeName } from './tmux-session.js';
 import { atomicWriteJson, validateResolvedPath } from './fs-utils.js';
 import { withFileLockSync } from '../lib/file-lock.js';
@@ -18,12 +19,12 @@ function configPath(teamName) {
     return result;
 }
 function shadowRegistryPath(workingDirectory) {
-    const result = join(workingDirectory, '.omc', 'state', 'team-mcp-workers.json');
-    validateResolvedPath(result, join(workingDirectory, '.omc', 'state'));
+    const result = join(getOmcRoot(workingDirectory), 'state', 'team-mcp-workers.json');
+    validateResolvedPath(result, join(getOmcRoot(workingDirectory), 'state'));
     return result;
 }
 function probeResultPath(workingDirectory) {
-    return join(workingDirectory, '.omc', 'state', 'config-probe-result.json');
+    return join(getOmcRoot(workingDirectory), 'state', 'config-probe-result.json');
 }
 // --- Probe result cache ---
 /** Read cached probe result. Returns null if not probed yet. */

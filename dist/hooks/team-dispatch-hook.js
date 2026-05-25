@@ -17,6 +17,7 @@ import { existsSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { createSwallowedErrorLogger } from '../lib/swallowed-error.js';
 import { tmuxExecAsync } from '../cli/tmux-utils.js';
+import { getOmcRoot } from '../lib/worktree-paths.js';
 // ── Helpers ────────────────────────────────────────────────────────────────
 function safeString(value, fallback = '') {
     if (typeof value === 'string')
@@ -471,8 +472,9 @@ function shouldSkipRequest(request) {
 }
 export async function drainPendingTeamDispatch(options = { cwd: '' }) {
     const { cwd } = options;
-    const stateDir = options.stateDir ?? join(cwd, '.omc', 'state');
-    const logsDir = options.logsDir ?? join(cwd, '.omc', 'logs');
+    const omcRoot = getOmcRoot(cwd);
+    const stateDir = options.stateDir ?? join(omcRoot, 'state');
+    const logsDir = options.logsDir ?? join(omcRoot, 'logs');
     const maxPerTick = options.maxPerTick ?? 5;
     const injector = options.injector ?? defaultInjector;
     if (safeString(process.env.OMC_TEAM_WORKER)) {

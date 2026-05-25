@@ -9,6 +9,7 @@
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join, basename } from 'path';
 import { getClaudeConfigDir } from '../../utils/config-dir.js';
+import { getOmcRoot } from '../../lib/worktree-paths.js';
 import type {
   ParsedSlashCommand,
   CommandInfo,
@@ -191,7 +192,7 @@ function discoverSkillsFromDir(skillsDir: string): CommandInfo[] {
 export function discoverAllCommands(): CommandInfo[] {
   const userCommandsDir = join(CLAUDE_CONFIG_DIR, 'commands');
   const projectCommandsDir = join(process.cwd(), '.claude', 'commands');
-  const projectOmcSkillsDir = join(process.cwd(), '.omc', 'skills');
+  const projectOmcSkillsDir = join(getOmcRoot(), 'skills');
   const projectAgentSkillsDir = join(process.cwd(), '.agents', 'skills');
   const userSkillsDir = join(CLAUDE_CONFIG_DIR, 'skills');
 

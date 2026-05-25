@@ -7,6 +7,7 @@
  */
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
+import { getOmcRoot } from "../lib/worktree-paths.js";
 import { comparePlanningArtifactPaths, selectLatestPlanningArtifactPath, selectMatchingTestSpecsForPrd, } from "./artifact-names.js";
 function readFileSafe(path) {
     try {
@@ -34,7 +35,7 @@ function hasRequiredSections(markdown, headings) {
     return headings.every((heading) => getSectionContent(markdown, heading) !== null);
 }
 function getPlansDirCandidates(cwd) {
-    return [join(cwd, ".omc", "plans"), join(cwd, ".omx", "plans")];
+    return [join(getOmcRoot(cwd), "plans"), join(cwd, ".omx", "plans")];
 }
 function sortArtifactPathsDescending(paths) {
     return [...paths].sort((a, b) => comparePlanningArtifactPaths(b, a));

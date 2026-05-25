@@ -750,7 +750,7 @@ function countIncompleteTasks(sessionId) {
   return count;
 }
 
-function countIncompleteTodos(sessionId, projectDir) {
+async function countIncompleteTodos(sessionId, projectDir) {
   let count = 0;
 
   // Session-specific todos only (no global scan)
@@ -780,8 +780,9 @@ function countIncompleteTodos(sessionId, projectDir) {
   }
 
   // Project-local todos only
+  const omcRoot = await resolveOmcStateRoot(projectDir);
   for (const path of [
-    join(projectDir, ".omc", "todos.json"),
+    join(omcRoot, "todos.json"),
     join(projectDir, ".claude", "todos.json"),
   ]) {
     try {
@@ -1057,7 +1058,7 @@ async function main() {
 
     // Count incomplete items (session-specific + project-local only)
     const taskCount = countIncompleteTasks(sessionId);
-    const todoCount = countIncompleteTodos(sessionId, directory);
+    const todoCount = await countIncompleteTodos(sessionId, directory);
     const totalIncomplete = taskCount + todoCount;
 
     // Check if cancel is in progress - if so, allow stop immediately

@@ -12,6 +12,7 @@ import { join } from 'path';
 
 import { registerBeadsContext } from '../beads-context/index.js';
 import { getClaudeConfigDir } from '../../utils/config-dir.js';
+import { getOmcRoot } from '../../lib/worktree-paths.js';
 
 // ============================================================================
 // Types
@@ -353,7 +354,7 @@ export async function processSetupInit(input: SetupInput): Promise<HookOutput> {
  * Prune old state files from .omc/state directory
  */
 export function pruneOldStateFiles(directory: string, maxAgeDays: number = DEFAULT_STATE_MAX_AGE_DAYS): number {
-  const stateDir = join(directory, '.omc/state');
+  const stateDir = join(getOmcRoot(directory), 'state');
   if (!existsSync(stateDir)) {
     return 0;
   }
@@ -416,7 +417,7 @@ export function pruneOldStateFiles(directory: string, maxAgeDays: number = DEFAU
  * Clean up orphaned state files (state files without corresponding active sessions)
  */
 export function cleanupOrphanedState(directory: string): number {
-  const stateDir = join(directory, '.omc/state');
+  const stateDir = join(getOmcRoot(directory), 'state');
   if (!existsSync(stateDir)) {
     return 0;
   }

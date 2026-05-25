@@ -13,6 +13,7 @@ import { readTeamConfig } from '../team/monitor.js';
 import { isProcessAlive } from '../platform/index.js';
 import { getGlobalOmcStatePath } from '../utils/paths.js';
 import { readApprovedExecutionLaunchHintOutcome } from '../planning/artifacts.js';
+import { getOmcRoot } from '../lib/worktree-paths.js';
 
 const JOB_ID_PATTERN = /^omc-[a-z0-9]{1,16}$/;
 const VALID_CLI_AGENT_TYPES = new Set(['claude', 'codex', 'gemini', 'cursor']);
@@ -218,7 +219,7 @@ function panesArtifactPath(jobsDir: string, jobId: string): string {
 }
 
 function teamStateRoot(cwd: string, teamName: string): string {
-  return join(cwd, '.omc', 'state', 'team', teamName);
+  return join(getOmcRoot(cwd), 'state', 'team', teamName);
 }
 
 function validateJobId(jobId: string): void {

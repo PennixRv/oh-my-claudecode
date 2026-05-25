@@ -526,7 +526,7 @@ describe("subagent-tracker", () => {
             expect(dashboard.match(/\[worker-/g) ?? []).toHaveLength(1);
             expect(dashboard).toContain("executor");
             expect(dashboard).toContain("Implement the dispatch changes");
-            const missionBoard = readMissionBoardState(testDir);
+            const missionBoard = readMissionBoardState(testDir, "session-123");
             const sessionMission = missionBoard?.missions.find((mission) => mission.id.startsWith("session:session-123:"));
             expect(sessionMission?.agents).toHaveLength(1);
             expect(sessionMission?.timeline).toHaveLength(1);
@@ -536,6 +536,34 @@ describe("subagent-tracker", () => {
             expect(persistedState.total_spawned).toBe(1);
             expect(persistedState.agents.filter((agent) => agent.agent_id === "worker-3")).toHaveLength(1);
             expect(persistedState.agents.filter((agent) => agent.status === "running")).toHaveLength(1);
+        });
+        it("routes mission-state writes to the hook session id (not getProcessSessionId/PID fallback)", () => {
+            // Regression: subagent-tracker previously omitted the sessionId arg when
+            // calling recordMissionAgentStart/Stop, so the writer fell back to
+            // getProcessSessionId() (pid-{PID}-{ts}). With /team spawning N subagent
+            // processes, the team's missions ended up scattered across N pid-* dirs
+            // instead of consolidated under the parent session UUID.
+            const startInput = {
+                session_id: "parent-uuid-xyz",
+                transcript_path: join(testDir, "transcript.jsonl"),
+                cwd: testDir,
+                permission_mode: "default",
+                hook_event_name: "SubagentStart",
+                agent_id: "worker-mission-routing",
+                agent_type: "oh-my-claudecode:executor",
+                prompt: "regression check",
+                model: "claude-sonnet-4-6",
+            };
+            processSubagentStart(startInput);
+            flushPendingWrites();
+            // Mission must live under the hook's session id, not under any pid-* fallback.
+            const fromParent = readMissionBoardState(testDir, "parent-uuid-xyz");
+            expect(fromParent?.missions.some((mission) => mission.id.startsWith("session:parent-uuid-xyz:"))).toBe(true);
+            // Sanity: explicitly assert no pid-* session dir got created for this run.
+            const sessionsDir = join(testDir, ".omc", "state", "sessions");
+            const entries = require("fs").readdirSync(sessionsDir);
+            expect(entries.filter((name) => name.startsWith("pid-"))).toHaveLength(0);
+            expect(entries).toContain("parent-uuid-xyz");
         });
     });
     describe("Tool Timing (Phase 1.1)", () => {

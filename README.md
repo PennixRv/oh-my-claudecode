@@ -310,6 +310,21 @@ Project-scoped skills are stored in `.omc/skills/` and are intended to be commit
 
 [Full feature list →](docs/REFERENCE.md)
 
+### Multi-repo workspaces
+
+When several independent git repos share a parent directory, drop a `.omc-workspace` marker at the parent so all sub-repos share one `.omc/` state root:
+
+```bash
+cd /path/to/parent-dir-with-many-repos
+echo '{"id":"my-workspace"}' > .omc-workspace
+# Sessions inside any sub-repo now share /path/.omc/
+# For parallel ultragoal runs:
+cd repo-A && omc ultragoal create-goals --auto-plan-id --brief "..."
+cd ../repo-B && omc ultragoal create-goals --auto-plan-id --brief "..."
+```
+
+See [Multi-repo workspaces in REFERENCE.md](docs/REFERENCE.md#multi-repo-workspaces-with-omc-workspace) for resolution order, `OMC_STATE_DIR`, and workspace identifier options.
+
 ---
 
 ## In-session shortcuts

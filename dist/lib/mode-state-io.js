@@ -169,9 +169,20 @@ export function writeModeState(mode, state, directory, sessionId) {
             ensureOmcDir('state', baseDir);
         }
         const filePath = resolveFile(mode, directory, sessionId);
+        // owner_pid is written at the top level (not only inside _meta) so external
+        // hook scripts can perform process-liveness checks without parsing _meta.
+        // Existing state shapes carry session_id at top level; owner_pid follows
+        // the same convention. Readers that don't know the field ignore it.
+        const ownerPid = typeof process.pid === 'number' ? process.pid : undefined;
         const envelope = {
             ...state,
-            _meta: { written_at: new Date().toISOString(), mode, ...(sessionId ? { sessionId } : {}) },
+            ...(ownerPid !== undefined && (state.owner_pid === undefined) ? { owner_pid: ownerPid } : {}),
+            _meta: {
+                written_at: new Date().toISOString(),
+                mode,
+                ...(sessionId ? { sessionId } : {}),
+                ...(ownerPid !== undefined ? { ownerPid } : {}),
+            },
         };
         atomicWriteJsonSync(filePath, envelope);
         return true;

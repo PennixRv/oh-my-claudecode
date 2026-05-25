@@ -13,6 +13,7 @@ import { spawn, execSync } from "child_process";
 import { existsSync, openSync, readSync, closeSync } from "fs";
 import { join } from "path";
 import { writeFileWithMode, ensureDirWithMode } from "./fs-utils.js";
+import { getOmcRoot } from "../lib/worktree-paths.js";
 import { findNextTask, updateTask, writeTaskFailure } from "./task-file-ops.js";
 import { readNewInboxMessages, appendOutbox, rotateOutboxIfNeeded, rotateInboxIfNeeded, checkShutdownSignal, deleteShutdownSignal, checkDrainSignal, deleteDrainSignal, } from "./inbox-outbox.js";
 import { unregisterMcpWorker } from "./team-registration.js";
@@ -228,7 +229,7 @@ function buildTaskPrompt(task, messages, config) {
 }
 /** Write prompt to a file for audit trail */
 function writePromptFile(config, taskId, prompt) {
-    const dir = join(config.workingDirectory, ".omc", "prompts");
+    const dir = join(getOmcRoot(config.workingDirectory), "prompts");
     ensureDirWithMode(dir);
     const filename = `team-${config.teamName}-task-${taskId}-${Date.now()}.md`;
     const filePath = join(dir, filename);
@@ -237,7 +238,7 @@ function writePromptFile(config, taskId, prompt) {
 }
 /** Get output file path for a task */
 function getOutputPath(config, taskId) {
-    const dir = join(config.workingDirectory, ".omc", "outputs");
+    const dir = join(getOmcRoot(config.workingDirectory), "outputs");
     ensureDirWithMode(dir);
     const suffix = Math.random().toString(36).slice(2, 8);
     return join(dir, `team-${config.teamName}-task-${taskId}-${Date.now()}-${suffix}.md`);

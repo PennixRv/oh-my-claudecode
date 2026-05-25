@@ -10,10 +10,21 @@
  */
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
-import { existsSync, mkdirSync, realpathSync, readdirSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, readdirSync, writeFileSync, unlinkSync } from 'fs';
 import { homedir } from 'os';
 import { resolve, normalize, relative, sep, join, isAbsolute, basename, dirname } from 'path';
 import { getClaudeConfigDir } from '../utils/config-dir.js';
+/**
+ * Workspace marker filename. A directory containing this file is treated as
+ * the OMC anchor regardless of git status — enables multi-repo workspaces
+ * where the parent dir is not itself a git repo (issue: bidchex-repos style).
+ *
+ * The marker can be empty or a JSON file with optional fields:
+ *   { "id": "stable-workspace-identifier" }
+ *
+ * Resolution order in getOmcRoot(): OMC_STATE_DIR > workspace marker > git > cwd.
+ */
+export const WORKSPACE_MARKER = '.omc-workspace';
 /** Standard .omc subdirectories */
 export const OmcPaths = {
     ROOT: '.omc',
@@ -39,6 +50,84 @@ export const OmcPaths = {
  */
 const MAX_WORKTREE_CACHE_SIZE = 8;
 const worktreeCacheMap = new Map();
+/**
+ * LRU cache for workspace marker lookups.
+ */
+const workspaceCacheMap = new Map();
+/**
+ * Walk up from the given directory looking for a WORKSPACE_MARKER file.
+ * Returns the directory containing the marker, or null if none found before
+ * reaching the filesystem root or the user's home directory.
+ *
+ * Walking stops at the home directory to prevent accidentally treating a
+ * stray marker in $HOME or above as a workspace anchor.
+ */
+export function findWorkspaceRoot(startDir) {
+    if (process.env.OMC_DISABLE_MULTIREPO === '1')
+        return null;
+    const effectiveStart = startDir || process.cwd();
+    let current;
+    try {
+        current = resolve(effectiveStart);
+    }
+    catch {
+        return null;
+    }
+    if (workspaceCacheMap.has(current)) {
+        const cached = workspaceCacheMap.get(current) ?? null;
+        workspaceCacheMap.delete(current);
+        workspaceCacheMap.set(current, cached);
+        return cached;
+    }
+    const home = (() => {
+        try {
+            return resolve(homedir());
+        }
+        catch {
+            return null;
+        }
+    })();
+    let cursor = current;
+    let result = null;
+    while (true) {
+        if (existsSync(join(cursor, WORKSPACE_MARKER))) {
+            result = cursor;
+            break;
+        }
+        const parent = dirname(cursor);
+        if (parent === cursor)
+            break;
+        if (home && cursor === home)
+            break;
+        cursor = parent;
+    }
+    if (workspaceCacheMap.size >= MAX_WORKTREE_CACHE_SIZE) {
+        const oldest = workspaceCacheMap.keys().next().value;
+        if (oldest !== undefined)
+            workspaceCacheMap.delete(oldest);
+    }
+    workspaceCacheMap.set(current, result);
+    return result;
+}
+/**
+ * Read optional workspace marker config (id override). Returns {} when the
+ * marker is empty or unparseable — callers should not throw on config errors.
+ */
+export function readWorkspaceMarkerConfig(workspaceRoot) {
+    try {
+        const raw = readFileSync(join(workspaceRoot, WORKSPACE_MARKER), 'utf-8').trim();
+        if (!raw)
+            return {};
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            return parsed;
+        }
+        return {};
+    }
+    catch {
+        return {};
+    }
+}
 /**
  * Get the git worktree root for the current or specified directory.
  * Returns null if not in a git repository.
@@ -97,6 +186,97 @@ export function validatePath(inputPath) {
 // ============================================================================
 /** Track which dual-dir warnings have been logged to avoid repeated warnings */
 const dualDirWarnings = new Set();
+/** Track which workspace anchors have already had sibling-scan warnings emitted (once per process) */
+const siblingRetrofitWarned = new Set();
+/**
+ * Scan sibling subdirs of a workspace anchor for pre-existing .omc/state/ content.
+ * Deduplicated per session via a disk marker so repeated hook firings within the
+ * same session don't re-stat siblings or re-emit. A fresh session (new sessionId)
+ * will re-warn — intentional, since the user may not have seen the prior warning.
+ *
+ * Call this once per session (e.g. from session-start.mjs) rather than on every
+ * getOmcRoot() invocation to keep the hot path free of readdirSync calls.
+ */
+export function warnSiblingRetrofit(workspaceAnchor, sessionId) {
+    if (siblingRetrofitWarned.has(workspaceAnchor))
+        return;
+    // Persistent per-session disk dedupe
+    const sharedOmc = join(workspaceAnchor, OmcPaths.ROOT);
+    if (sessionId) {
+        const markerPath = join(sharedOmc, 'state', `sibling-retrofit-warned-${sessionId}.json`);
+        if (existsSync(markerPath)) {
+            siblingRetrofitWarned.add(workspaceAnchor);
+            return;
+        }
+    }
+    siblingRetrofitWarned.add(workspaceAnchor);
+    let entries;
+    try {
+        entries = readdirSync(workspaceAnchor, { withFileTypes: true, encoding: 'utf-8' });
+    }
+    catch {
+        return;
+    }
+    const legacyDirs = [];
+    for (const entry of entries) {
+        if (!entry.isDirectory())
+            continue;
+        const entryName = entry.name;
+        const siblingStateDir = join(workspaceAnchor, entryName, OmcPaths.ROOT, 'state');
+        if (existsSync(siblingStateDir)) {
+            legacyDirs.push(join(workspaceAnchor, entryName, OmcPaths.ROOT));
+        }
+    }
+    if (legacyDirs.length === 0)
+        return;
+    const dirList = legacyDirs.map(d => `  - ${d}`).join('\n');
+    process.stderr.write(`[omc] workspace-retrofit warning: .omc-workspace anchor found at ${workspaceAnchor}\n` +
+        `  but sibling repos have pre-existing local .omc/state/ content:\n${dirList}\n` +
+        `  Shared state will go to: ${sharedOmc}\n` +
+        `  To migrate legacy state: OMC_MIGRATE_LEGACY_STATE=1 omc setup\n` +
+        `  Or manually copy state files to ${sharedOmc}/state/\n`);
+    // Write disk marker so subsequent hook firings in the same session stay silent
+    if (sessionId) {
+        try {
+            const stateDir = join(sharedOmc, 'state');
+            if (!existsSync(stateDir))
+                mkdirSync(stateDir, { recursive: true });
+            const markerPath = join(stateDir, `sibling-retrofit-warned-${sessionId}.json`);
+            writeFileSync(markerPath, JSON.stringify({ warnedAt: new Date().toISOString(), anchor: workspaceAnchor }));
+        }
+        catch {
+            // Non-fatal — dedupe falls back to in-memory Set for this process
+        }
+    }
+}
+/**
+ * Clear the sibling retrofit warning cache (useful for testing).
+ * Also removes any disk markers under the given omcStateDir when provided.
+ * @internal
+ */
+export function clearSiblingRetrofitWarnings(omcStateDir) {
+    siblingRetrofitWarned.clear();
+    if (omcStateDir) {
+        try {
+            const stateDir = join(omcStateDir, 'state');
+            if (!existsSync(stateDir))
+                return;
+            const entries = readdirSync(stateDir, { withFileTypes: true, encoding: 'utf-8' });
+            for (const entry of entries) {
+                const name = entry.name;
+                if (name.startsWith('sibling-retrofit-warned-') && name.endsWith('.json')) {
+                    try {
+                        unlinkSync(join(stateDir, name));
+                    }
+                    catch { /* non-fatal */ }
+                }
+            }
+        }
+        catch {
+            // Non-fatal
+        }
+    }
+}
 /**
  * Clear the dual-directory warning cache (useful for testing).
  * @internal
@@ -119,6 +299,22 @@ export function clearDualDirWarnings() {
  */
 export function getProjectIdentifier(worktreeRoot) {
     const root = worktreeRoot || getWorktreeRoot() || process.cwd();
+    // Workspace marker can supply a stable, user-controlled identifier.
+    // This wins over git remote so multi-repo workspaces have one consistent ID.
+    const workspaceRoot = findWorkspaceRoot(root);
+    if (workspaceRoot) {
+        const cfg = readWorkspaceMarkerConfig(workspaceRoot);
+        if (cfg.id && typeof cfg.id === 'string' && cfg.id.trim()) {
+            const safeId = cfg.id.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+            const hash = createHash('sha256').update(safeId).digest('hex').slice(0, 16);
+            return `${safeId}-${hash}`;
+        }
+        // No explicit id — derive a stable identifier from the workspace path so
+        // sibling subrepos inside the same workspace share one ID.
+        const hash = createHash('sha256').update(workspaceRoot).digest('hex').slice(0, 16);
+        const dirName = basename(workspaceRoot).replace(/[^a-zA-Z0-9_-]/g, '_');
+        return `${dirName}-${hash}`;
+    }
     let source;
     try {
         const remoteUrl = execSync('git remote get-url origin', {
@@ -192,6 +388,13 @@ export function getOmcRoot(worktreeRoot) {
         }
         return centralizedPath;
     }
+    // Workspace marker overrides git root resolution. This enables multi-repo
+    // workspaces where the parent dir is not itself a git repo: all sub-repos
+    // share the same .omc/ at the marker location.
+    const workspaceAnchor = findWorkspaceRoot(worktreeRoot);
+    if (workspaceAnchor) {
+        return join(workspaceAnchor, OmcPaths.ROOT);
+    }
     const root = worktreeRoot || getWorktreeRoot() || process.cwd();
     return join(root, OmcPaths.ROOT);
 }
@@ -221,6 +424,7 @@ export function resolveOmcPath(relativePath, worktreeRoot) {
  * State files follow the naming convention: {mode}-state.json
  * Examples: ralph-state.json, ultrawork-state.json, autopilot-state.json
  *
+ * @deprecated Use resolveSessionStatePaths instead.
  * @param stateName - State name (e.g., "ralph", "ultrawork", or "ralph-state")
  * @param worktreeRoot - Optional worktree root
  * @returns Absolute path to state file
@@ -333,6 +537,7 @@ export function ensureAllOmcDirs(worktreeRoot) {
  */
 export function clearWorktreeCache() {
     worktreeCacheMap.clear();
+    workspaceCacheMap.clear();
 }
 // ============================================================================
 // SESSION-SCOPED STATE PATHS
@@ -437,6 +642,7 @@ export function isValidTranscriptPath(transcriptPath) {
  * Resolve a session-scoped state file path.
  * Path: {omcRoot}/state/sessions/{sessionId}/{mode}-state.json
  *
+ * @deprecated Use resolveSessionStatePaths instead.
  * @param stateName - State name (e.g., "ralph", "ultrawork")
  * @param sessionId - Session identifier
  * @param worktreeRoot - Optional worktree root
@@ -446,6 +652,50 @@ export function resolveSessionStatePath(stateName, sessionId, worktreeRoot) {
     validateSessionId(sessionId);
     const normalizedName = stateName.endsWith('-state') ? stateName : `${stateName}-state`;
     return resolveOmcPath(`state/sessions/${sessionId}/${normalizedName}.json`, worktreeRoot);
+}
+/**
+ * Canonical session-scoped state path resolver. Returns a branded struct so
+ * callers cannot accidentally write to the read-fallback path. See
+ * `SessionStatePaths` for field semantics.
+ *
+ * When `sessionId` is undefined or empty, the function operates in legacy
+ * mode: `sessionScoped` is the empty string, both `effectiveRead` and
+ * `effectiveWrite` brand the legacy path. This preserves single-plan/single-
+ * session repos unchanged.
+ *
+ * @internal Internal-ish helpers (resolveStatePath, resolveSessionStatePath
+ * single-string variant) remain for back-compat but new code should prefer
+ * this helper.
+ */
+export function resolveSessionStatePaths(stateName, sessionId, worktreeRoot, _opts) {
+    const normalizedName = stateName.endsWith('-state') ? stateName : `${stateName}-state`;
+    const legacy = resolveStatePath(stateName, worktreeRoot);
+    if (!sessionId) {
+        return {
+            sessionScoped: '',
+            legacy,
+            effectiveRead: legacy,
+            effectiveWrite: legacy,
+        };
+    }
+    validateSessionId(sessionId);
+    const sessionScoped = resolveOmcPath(`state/sessions/${sessionId}/${normalizedName}.json`, worktreeRoot);
+    // effectiveRead probes session-scoped first; fall back to legacy when the
+    // session-scoped file does not yet exist (first-read back-compat).
+    const effectiveRead = (existsSync(sessionScoped) ? sessionScoped : legacy);
+    return {
+        sessionScoped,
+        legacy,
+        effectiveRead,
+        effectiveWrite: sessionScoped,
+    };
+}
+/**
+ * Whether opt-in legacy→session migration is enabled for this process.
+ * Checked by writers that wrap migration around their write step.
+ */
+export function isLegacyStateMigrationEnabled() {
+    return process.env.OMC_MIGRATE_LEGACY_STATE === '1';
 }
 /**
  * Get the session state directory path.

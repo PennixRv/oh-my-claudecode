@@ -10,6 +10,18 @@ import { isOmcHook } from '../../installer/index.js';
 import { colors } from '../utils/formatting.js';
 import { getSkillsDir, listBuiltinSkillNames } from '../../features/builtin-skills/skills.js';
 import { inspectUnifiedMcpRegistrySync } from '../../installer/mcp-registry.js';
+import { findWorkspaceRoot, WORKSPACE_MARKER } from '../../lib/worktree-paths.js';
+
+export interface WorkspaceMarkerStatus {
+  /** Absolute path to the directory containing .omc-workspace, or null if absent. */
+  markerRoot: string | null;
+  /** True when OMC_STATE_DIR env var is set. */
+  stateDirEnvSet: boolean;
+  /** Value of OMC_STATE_DIR, or null when unset. */
+  stateDirEnvValue: string | null;
+  /** When both OMC_STATE_DIR and .omc-workspace are active, this is true (warn: OMC_STATE_DIR wins). */
+  precedenceConflict: boolean;
+}
 
 export interface ConflictReport {
   hookConflicts: { event: string; command: string; isOmc: boolean }[];
@@ -18,6 +30,7 @@ export interface ConflictReport {
   envFlags: { disableOmc: boolean; skipHooks: string[] };
   configIssues: { unknownFields: string[] };
   mcpRegistrySync: ReturnType<typeof inspectUnifiedMcpRegistrySync>;
+  workspaceMarker: WorkspaceMarkerStatus;
   hasConflicts: boolean;
 }
 
@@ -450,6 +463,26 @@ export function checkConfigIssues(): ConflictReport['configIssues'] {
 }
 
 /**
+ * Check for .omc-workspace marker presence and OMC_STATE_DIR precedence.
+ *
+ * Reports:
+ *  - Whether a .omc-workspace marker was found (and where).
+ *  - Whether OMC_STATE_DIR is set.
+ *  - When both are set, emits a precedenceConflict flag (OMC_STATE_DIR wins per
+ *    the resolution-order principle: OMC_STATE_DIR > .omc-workspace > git > cwd).
+ */
+export function checkWorkspaceMarker(): WorkspaceMarkerStatus {
+  const markerRoot = findWorkspaceRoot();
+  const stateDirEnvValue = process.env.OMC_STATE_DIR && process.env.OMC_STATE_DIR.trim()
+    ? process.env.OMC_STATE_DIR.trim()
+    : null;
+  const stateDirEnvSet = stateDirEnvValue !== null;
+  const precedenceConflict = stateDirEnvSet && markerRoot !== null;
+
+  return { markerRoot, stateDirEnvSet, stateDirEnvValue, precedenceConflict };
+}
+
+/**
  * Run complete conflict check
  */
 export function runConflictCheck(): ConflictReport {
@@ -459,6 +492,7 @@ export function runConflictCheck(): ConflictReport {
   const envFlags = checkEnvFlags();
   const configIssues = checkConfigIssues();
   const mcpRegistrySync = inspectUnifiedMcpRegistrySync();
+  const workspaceMarker = checkWorkspaceMarker();
 
   // Determine if there are actual conflicts
   const hasConflicts =
@@ -472,6 +506,7 @@ export function runConflictCheck(): ConflictReport {
     mcpRegistrySync.codexMissing.length > 0 ||
     mcpRegistrySync.codexMismatched.length > 0;
     // Note: Missing OMC markers is informational (normal for fresh install), not a conflict
+    // Note: workspaceMarker.precedenceConflict is a WARN, not a hard conflict
 
   return {
     hookConflicts,
@@ -480,6 +515,7 @@ export function runConflictCheck(): ConflictReport {
     envFlags,
     configIssues,
     mcpRegistrySync,
+    workspaceMarker,
     hasConflicts
   };
 }
@@ -615,6 +651,28 @@ export function formatReport(report: ConflictReport, json: boolean): string {
     } else {
       lines.push(`  ${colors.green('✓')} Codex config.toml is in sync`);
     }
+  }
+  lines.push('');
+
+  // Workspace marker
+  lines.push(colors.bold('🗂  Workspace Marker (.omc-workspace)'));
+  lines.push('');
+  const wm = report.workspaceMarker;
+  if (wm.markerRoot) {
+    lines.push(`  ${colors.green('✓')} ${WORKSPACE_MARKER} found`);
+    lines.push(`    ${colors.gray(`Marker root: ${wm.markerRoot}`)}`);
+  } else {
+    lines.push(`  ${colors.gray('ℹ')} No ${WORKSPACE_MARKER} marker found (single-repo mode)`);
+  }
+  if (wm.stateDirEnvSet) {
+    lines.push(`  ${colors.green('✓')} OMC_STATE_DIR is set: ${wm.stateDirEnvValue}`);
+  } else {
+    lines.push(`  ${colors.gray('ℹ')} OMC_STATE_DIR not set`);
+  }
+  if (wm.precedenceConflict) {
+    lines.push(`  ${colors.yellow('⚠')} Both OMC_STATE_DIR and ${WORKSPACE_MARKER} are active.`);
+    lines.push(`    ${colors.gray('OMC_STATE_DIR takes precedence (resolution order: OMC_STATE_DIR > .omc-workspace > git > cwd).')}`);
+    lines.push(`    ${colors.gray('If you intended .omc-workspace to anchor state, unset OMC_STATE_DIR.')}`);
   }
   lines.push('');
 

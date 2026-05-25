@@ -3,6 +3,16 @@
  * Scans for and reports plugin coexistence issues.
  */
 import { inspectUnifiedMcpRegistrySync } from '../../installer/mcp-registry.js';
+export interface WorkspaceMarkerStatus {
+    /** Absolute path to the directory containing .omc-workspace, or null if absent. */
+    markerRoot: string | null;
+    /** True when OMC_STATE_DIR env var is set. */
+    stateDirEnvSet: boolean;
+    /** Value of OMC_STATE_DIR, or null when unset. */
+    stateDirEnvValue: string | null;
+    /** When both OMC_STATE_DIR and .omc-workspace are active, this is true (warn: OMC_STATE_DIR wins). */
+    precedenceConflict: boolean;
+}
 export interface ConflictReport {
     hookConflicts: {
         event: string;
@@ -27,6 +37,7 @@ export interface ConflictReport {
         unknownFields: string[];
     };
     mcpRegistrySync: ReturnType<typeof inspectUnifiedMcpRegistrySync>;
+    workspaceMarker: WorkspaceMarkerStatus;
     hasConflicts: boolean;
 }
 /**
@@ -57,6 +68,16 @@ export declare function checkLegacySkills(): ConflictReport['legacySkills'];
  * Check for unknown fields in config files
  */
 export declare function checkConfigIssues(): ConflictReport['configIssues'];
+/**
+ * Check for .omc-workspace marker presence and OMC_STATE_DIR precedence.
+ *
+ * Reports:
+ *  - Whether a .omc-workspace marker was found (and where).
+ *  - Whether OMC_STATE_DIR is set.
+ *  - When both are set, emits a precedenceConflict flag (OMC_STATE_DIR wins per
+ *    the resolution-order principle: OMC_STATE_DIR > .omc-workspace > git > cwd).
+ */
+export declare function checkWorkspaceMarker(): WorkspaceMarkerStatus;
 /**
  * Run complete conflict check
  */

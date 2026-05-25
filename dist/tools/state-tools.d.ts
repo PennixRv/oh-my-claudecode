@@ -35,6 +35,7 @@ export declare const stateClearTool: ToolDefinition<{
 export declare const stateListActiveTool: ToolDefinition<{
     workingDirectory: z.ZodOptional<z.ZodString>;
     session_id: z.ZodOptional<z.ZodString>;
+    all: z.ZodOptional<z.ZodBoolean>;
 }>;
 export declare const stateGetStatusTool: ToolDefinition<{
     mode: z.ZodOptional<z.ZodEnum<typeof STATE_TOOL_MODES>>;
@@ -65,6 +66,7 @@ export declare const stateTools: (ToolDefinition<{
 }> | ToolDefinition<{
     workingDirectory: z.ZodOptional<z.ZodString>;
     session_id: z.ZodOptional<z.ZodString>;
+    all: z.ZodOptional<z.ZodBoolean>;
 }> | ToolDefinition<{
     mode: z.ZodOptional<z.ZodEnum<typeof STATE_TOOL_MODES>>;
     workingDirectory: z.ZodOptional<z.ZodString>;

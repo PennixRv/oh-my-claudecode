@@ -16,6 +16,7 @@ import { readFile, writeFile, mkdir, appendFile, rename, stat } from 'fs/promise
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { createSwallowedErrorLogger } from '../lib/swallowed-error.js';
+import { getOmcRoot } from '../lib/worktree-paths.js';
 // ── Env helpers ────────────────────────────────────────────────────────────
 function safeString(value, fallback = '') {
     if (typeof value === 'string')
@@ -407,7 +408,7 @@ export async function maybeNotifyLeaderAllWorkersIdle(params) {
 }
 // ── Main handler ───────────────────────────────────────────────────────────
 export async function handleWorkerTurn(teamName, workerName, cwd, tmux) {
-    const stateDir = join(cwd, '.omc', 'state');
+    const stateDir = join(getOmcRoot(cwd), 'state');
     const parsedTeamWorker = { teamName, workerName };
     await updateWorkerHeartbeat(stateDir, teamName, workerName);
     await maybeNotifyLeaderWorkerIdle({ cwd, stateDir, parsedTeamWorker, tmux });

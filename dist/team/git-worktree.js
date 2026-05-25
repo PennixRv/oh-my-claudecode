@@ -17,9 +17,10 @@ import { execFileSync } from 'node:child_process';
 import { atomicWriteJson, ensureDirWithMode, validateResolvedPath } from './fs-utils.js';
 import { sanitizeName } from './tmux-session.js';
 import { withFileLockSync } from '../lib/file-lock.js';
+import { getOmcRoot } from '../lib/worktree-paths.js';
 /** Get canonical native team worktree path for a worker. */
 export function getWorktreePath(repoRoot, teamName, workerName) {
-    return join(repoRoot, '.omc', 'team', sanitizeName(teamName), 'worktrees', sanitizeName(workerName));
+    return join(getOmcRoot(repoRoot), 'team', sanitizeName(teamName), 'worktrees', sanitizeName(workerName));
 }
 /** Get branch name for a worker. */
 export function getBranchName(teamName, workerName) {
@@ -135,13 +136,13 @@ function isWorktreeDirtyExcept(wtPath, ignoredRootPaths = []) {
 }
 /** Get worktree metadata path. */
 function getMetadataPath(repoRoot, teamName) {
-    return join(repoRoot, '.omc', 'state', 'team', sanitizeName(teamName), 'worktrees.json');
+    return join(getOmcRoot(repoRoot), 'state', 'team', sanitizeName(teamName), 'worktrees.json');
 }
 function getLegacyMetadataPath(repoRoot, teamName) {
-    return join(repoRoot, '.omc', 'state', 'team-bridge', sanitizeName(teamName), 'worktrees.json');
+    return join(getOmcRoot(repoRoot), 'state', 'team-bridge', sanitizeName(teamName), 'worktrees.json');
 }
 function getWorkerStateDir(repoRoot, teamName, workerName) {
-    return join(repoRoot, '.omc', 'state', 'team', sanitizeName(teamName), 'workers', sanitizeName(workerName));
+    return join(getOmcRoot(repoRoot), 'state', 'team', sanitizeName(teamName), 'workers', sanitizeName(workerName));
 }
 function getRootAgentsBackupPath(repoRoot, teamName, workerName) {
     return join(getWorkerStateDir(repoRoot, teamName, workerName), 'worktree-root-agents.json');
@@ -258,7 +259,7 @@ function readMetadata(repoRoot, teamName) {
     return readMetadataResult(repoRoot, teamName).entries;
 }
 function listRootAgentsBackupIssues(repoRoot, teamName, entries) {
-    const workersDir = join(repoRoot, '.omc', 'state', 'team', sanitizeName(teamName), 'workers');
+    const workersDir = join(getOmcRoot(repoRoot), 'state', 'team', sanitizeName(teamName), 'workers');
     if (!existsSync(workersDir))
         return [];
     const knownWorkers = new Set(entries.map((entry) => sanitizeName(entry.workerName)));
@@ -288,7 +289,7 @@ function listRootAgentsBackupIssues(repoRoot, teamName, entries) {
 function writeMetadata(repoRoot, teamName, entries) {
     const metaPath = getMetadataPath(repoRoot, teamName);
     validateResolvedPath(metaPath, repoRoot);
-    ensureDirWithMode(join(repoRoot, '.omc', 'state', 'team', sanitizeName(teamName)));
+    ensureDirWithMode(join(getOmcRoot(repoRoot), 'state', 'team', sanitizeName(teamName)));
     atomicWriteJson(metaPath, entries);
 }
 function recordMetadata(repoRoot, teamName, info) {
@@ -374,7 +375,7 @@ export function ensureWorkerWorktree(teamName, workerName, repoRoot, options = {
         recordMetadata(repoRoot, teamName, info);
         return info;
     }
-    const wtDir = join(repoRoot, '.omc', 'team', sanitizeName(teamName), 'worktrees');
+    const wtDir = join(getOmcRoot(repoRoot), 'team', sanitizeName(teamName), 'worktrees');
     ensureDirWithMode(wtDir);
     const args = mode === 'named'
         ? ['worktree', 'add', '-b', branch, wtPath, options.baseRef ?? 'HEAD']

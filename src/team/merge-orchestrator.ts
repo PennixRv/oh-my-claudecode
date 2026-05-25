@@ -60,6 +60,7 @@ import { mkdir, appendFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { atomicWriteJson, ensureDirWithMode, validateResolvedPath } from './fs-utils.js';
+import { getOmcRoot } from '../lib/worktree-paths.js';
 import { isRuntimeV2Enabled } from './runtime-flags.js';
 import { sanitizeName } from './tmux-session.js';
 import { listTeamWorktrees, getWorktreePath, getBranchName } from './git-worktree.js';
@@ -138,13 +139,12 @@ const DEFAULT_DRAIN_TIMEOUT_MS = 10000;
 // ---------------------------------------------------------------------------
 
 function mergerWorktreePathFor(repoRoot: string, teamName: string): string {
-  return join(repoRoot, '.omc', 'team', sanitizeName(teamName), 'merger');
+  return join(getOmcRoot(repoRoot), 'team', sanitizeName(teamName), 'merger');
 }
 
 function persistedStatePath(repoRoot: string, teamName: string): string {
   return join(
-    repoRoot,
-    '.omc',
+    getOmcRoot(repoRoot),
     'state',
     'team',
     sanitizeName(teamName),
@@ -154,8 +154,7 @@ function persistedStatePath(repoRoot: string, teamName: string): string {
 
 function teardownAuditPath(repoRoot: string, teamName: string): string {
   return join(
-    repoRoot,
-    '.omc',
+    getOmcRoot(repoRoot),
     'state',
     'team',
     sanitizeName(teamName),
@@ -165,8 +164,7 @@ function teardownAuditPath(repoRoot: string, teamName: string): string {
 
 function orchestratorEventLogPath(repoRoot: string, teamName: string): string {
   return join(
-    repoRoot,
-    '.omc',
+    getOmcRoot(repoRoot),
     'state',
     'team',
     sanitizeName(teamName),

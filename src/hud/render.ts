@@ -7,6 +7,7 @@
 import type { HudRenderContext, HudConfig, LayoutConfig } from "./types.js";
 import { DEFAULT_HUD_CONFIG, DEFAULT_ELEMENT_ORDER, DEFAULT_HUD_LABELS } from "./types.js";
 import { bold, dim } from "./colors.js";
+import { isRuntimePackageLocal } from "../lib/version.js";
 import { stringWidth, getCharWidth } from "../utils/string-width.js";
 import { renderRalph } from "./elements/ralph.js";
 import {
@@ -34,6 +35,7 @@ import { renderAutopilot } from "./elements/autopilot.js";
 import { renderCwd } from "./elements/cwd.js";
 import { renderHostname } from "./elements/hostname.js";
 import { renderGitRepo, renderGitBranch, renderGitStatus } from "./elements/git.js";
+import { renderMultiRepo } from "./elements/multi-repo.js";
 import { renderModel } from "./elements/model.js";
 import { renderApiKeySource } from "./elements/api-key-source.js";
 import { renderCallCounts } from "./elements/call-counts.js";
@@ -252,19 +254,30 @@ export async function render(
     if (cwdElement) rendered.set("cwd", cwdElement);
   }
 
-  if (enabledElements.gitRepo) {
-    const gitRepoElement = renderGitRepo(context.cwd);
-    if (gitRepoElement) rendered.set("gitRepo", gitRepoElement);
-  }
+  // Multi-repo parent dir: replace the per-repo chips with a single
+  // workspace summary. When cwd is itself a git repo, renderMultiRepo
+  // returns null and the normal git elements take over.
+  const multiRepoElement = enabledElements.gitRepo
+    ? renderMultiRepo(context.cwd)
+    : null;
 
-  if (enabledElements.gitBranch) {
-    const gitBranchElement = renderGitBranch(context.cwd);
-    if (gitBranchElement) rendered.set("gitBranch", gitBranchElement);
-  }
+  if (multiRepoElement) {
+    rendered.set("gitRepo", multiRepoElement);
+  } else {
+    if (enabledElements.gitRepo) {
+      const gitRepoElement = renderGitRepo(context.cwd);
+      if (gitRepoElement) rendered.set("gitRepo", gitRepoElement);
+    }
 
-  if (enabledElements.gitStatus) {
-    const gitStatusElement = renderGitStatus(context.cwd, hudLabels);
-    if (gitStatusElement) rendered.set("gitStatus", gitStatusElement);
+    if (enabledElements.gitBranch) {
+      const gitBranchElement = renderGitBranch(context.cwd);
+      if (gitBranchElement) rendered.set("gitBranch", gitBranchElement);
+    }
+
+    if (enabledElements.gitStatus) {
+      const gitStatusElement = renderGitStatus(context.cwd, hudLabels);
+      if (gitStatusElement) rendered.set("gitStatus", gitStatusElement);
+    }
   }
 
   const modelSource = enabledElements.modelFormat === 'full'
@@ -291,7 +304,10 @@ export async function render(
   // -- main-group elements (default: main statusline) --
 
   if (enabledElements.omcLabel) {
-    const versionTag = context.omcVersion ? `#${context.omcVersion}` : "";
+    const localSuffix = isRuntimePackageLocal() ? "L" : "";
+    const versionTag = context.omcVersion
+      ? `#${context.omcVersion}${localSuffix}`
+      : (localSuffix ? `#${localSuffix}` : "");
     if (context.updateAvailable) {
       rendered.set(
         "omcLabel",

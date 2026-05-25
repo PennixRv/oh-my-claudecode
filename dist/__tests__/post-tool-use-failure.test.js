@@ -6,7 +6,7 @@ const NODE = process.execPath;
 const REPO_ROOT = resolve(join(__dirname, '..', '..'));
 const SCRIPT_PATH = join(REPO_ROOT, 'scripts', 'post-tool-use-failure.mjs');
 const TEST_TMP_ROOT = join(REPO_ROOT, '.tmp-post-tool-use-failure-tests');
-function runHook(input) {
+function runHook(input, extraEnv) {
     const raw = execFileSync(NODE, [SCRIPT_PATH], {
         input: JSON.stringify(input),
         encoding: 'utf-8',
@@ -14,6 +14,7 @@ function runHook(input) {
             ...process.env,
             CLAUDE_PLUGIN_ROOT: REPO_ROOT,
             NODE_ENV: 'test',
+            ...extraEnv,
         },
         timeout: 15000,
     }).trim();
@@ -98,6 +99,103 @@ describe('post-tool-use-failure.mjs', () => {
         expect(result.continue).toBe(true);
         expect(result.suppressOutput).not.toBe(true);
         expect(existsSync(errorPath)).toBe(true);
+    });
+    it('writes to session-scoped path when session_id is provided in payload', () => {
+        const cwd = makeRepoLocalTempDir();
+        const sessionId = 'abc';
+        const sessionPath = join(cwd, '.omc', 'state', 'sessions', sessionId, 'last-tool-error-state.json');
+        const legacyPath = join(cwd, '.omc', 'state', 'last-tool-error.json');
+        const result = runHook({
+            tool_name: 'Bash',
+            tool_input: { command: 'false' },
+            error: 'exit code 1',
+            cwd,
+            session_id: sessionId,
+        });
+        expect(result.continue).toBe(true);
+        expect(result.hookSpecificOutput?.hookEventName).toBe('PostToolUseFailure');
+        expect(existsSync(sessionPath)).toBe(true);
+        expect(existsSync(legacyPath)).toBe(false);
+        const state = JSON.parse(readFileSync(sessionPath, 'utf-8'));
+        expect(state.tool_name).toBe('Bash');
+        expect(state.retry_count).toBe(1);
+    });
+    it('writes to legacy path when no session_id is present (back-compat)', () => {
+        const cwd = makeRepoLocalTempDir();
+        const legacyPath = join(cwd, '.omc', 'state', 'last-tool-error.json');
+        const result = runHook({
+            tool_name: 'Bash',
+            tool_input: { command: 'false' },
+            error: 'exit code 1',
+            cwd,
+            // no session_id
+        });
+        expect(result.continue).toBe(true);
+        expect(existsSync(legacyPath)).toBe(true);
+        // session subdir should NOT be created
+        expect(existsSync(join(cwd, '.omc', 'state', 'sessions'))).toBe(false);
+    });
+    it('uses OMC_SESSION_ID env var as fallback when payload has no session_id', () => {
+        const cwd = makeRepoLocalTempDir();
+        const sessionId = 'env-session-1';
+        const sessionPath = join(cwd, '.omc', 'state', 'sessions', sessionId, 'last-tool-error-state.json');
+        const legacyPath = join(cwd, '.omc', 'state', 'last-tool-error.json');
+        runHook({
+            tool_name: 'Bash',
+            tool_input: { command: 'false' },
+            error: 'exit code 1',
+            cwd,
+            // no session_id in payload
+        }, { OMC_SESSION_ID: sessionId });
+        expect(existsSync(sessionPath)).toBe(true);
+        expect(existsSync(legacyPath)).toBe(false);
+    });
+    it('payload session_id takes priority over OMC_SESSION_ID env var', () => {
+        const cwd = makeRepoLocalTempDir();
+        const payloadSessionId = 'payload-session';
+        const envSessionId = 'env-session';
+        const payloadPath = join(cwd, '.omc', 'state', 'sessions', payloadSessionId, 'last-tool-error-state.json');
+        const envPath = join(cwd, '.omc', 'state', 'sessions', envSessionId, 'last-tool-error-state.json');
+        runHook({
+            tool_name: 'Bash',
+            tool_input: { command: 'false' },
+            error: 'exit code 1',
+            cwd,
+            session_id: payloadSessionId,
+        }, { OMC_SESSION_ID: envSessionId });
+        expect(existsSync(payloadPath)).toBe(true);
+        expect(existsSync(envPath)).toBe(false);
+    });
+    it('two consecutive invocations with different session_ids write to isolated files', () => {
+        const cwd = makeRepoLocalTempDir();
+        const sessionA = 'session-alpha';
+        const sessionB = 'session-beta';
+        const pathA = join(cwd, '.omc', 'state', 'sessions', sessionA, 'last-tool-error-state.json');
+        const pathB = join(cwd, '.omc', 'state', 'sessions', sessionB, 'last-tool-error-state.json');
+        // First invocation
+        runHook({
+            tool_name: 'Edit',
+            tool_input: { file_path: '/tmp/x' },
+            error: 'file not found',
+            cwd,
+            session_id: sessionA,
+        });
+        // Second invocation with different session
+        runHook({
+            tool_name: 'Bash',
+            tool_input: { command: 'npm test' },
+            error: 'command failed',
+            cwd,
+            session_id: sessionB,
+        });
+        expect(existsSync(pathA)).toBe(true);
+        expect(existsSync(pathB)).toBe(true);
+        const stateA = JSON.parse(readFileSync(pathA, 'utf-8'));
+        const stateB = JSON.parse(readFileSync(pathB, 'utf-8'));
+        expect(stateA.tool_name).toBe('Edit');
+        expect(stateB.tool_name).toBe('Bash');
+        // Files are independent — different paths, different content
+        expect(pathA).not.toBe(pathB);
     });
 });
 //# sourceMappingURL=post-tool-use-failure.test.js.map

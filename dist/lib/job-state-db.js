@@ -15,6 +15,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "fs";
 import { join, resolve } from "path";
+import { getOmcRoot } from "./worktree-paths.js";
 // Schema version - bump when adding migrations
 const DB_SCHEMA_VERSION = 1;
 // Default max age for cleanup: 24 hours
@@ -53,13 +54,13 @@ function getDb(cwd) {
  * Get the database file path
  */
 function getDbPath(cwd) {
-    return join(cwd, ".omc", "state", "jobs.db");
+    return join(getOmcRoot(cwd), "state", "jobs.db");
 }
 /**
  * Ensure the state directory exists
  */
 function ensureStateDir(cwd) {
-    const stateDir = join(cwd, ".omc", "state");
+    const stateDir = join(getOmcRoot(cwd), "state");
     if (!existsSync(stateDir)) {
         mkdirSync(stateDir, { recursive: true });
     }

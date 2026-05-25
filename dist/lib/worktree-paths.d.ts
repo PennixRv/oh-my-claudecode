@@ -8,6 +8,17 @@
  * When set, state is stored at $OMC_STATE_DIR/{project-identifier}/ instead
  * of {worktree}/.omc/. This preserves state across worktree deletions.
  */
+/**
+ * Workspace marker filename. A directory containing this file is treated as
+ * the OMC anchor regardless of git status — enables multi-repo workspaces
+ * where the parent dir is not itself a git repo (issue: bidchex-repos style).
+ *
+ * The marker can be empty or a JSON file with optional fields:
+ *   { "id": "stable-workspace-identifier" }
+ *
+ * Resolution order in getOmcRoot(): OMC_STATE_DIR > workspace marker > git > cwd.
+ */
+export declare const WORKSPACE_MARKER = ".omc-workspace";
 /** Standard .omc subdirectories */
 export declare const OmcPaths: {
     readonly ROOT: ".omc";
@@ -26,6 +37,23 @@ export declare const OmcPaths: {
     readonly SHARED_MEMORY: ".omc/state/shared-memory";
     readonly DEEPINIT_MANIFEST: ".omc/deepinit-manifest.json";
 };
+interface WorkspaceMarkerConfig {
+    id?: string;
+}
+/**
+ * Walk up from the given directory looking for a WORKSPACE_MARKER file.
+ * Returns the directory containing the marker, or null if none found before
+ * reaching the filesystem root or the user's home directory.
+ *
+ * Walking stops at the home directory to prevent accidentally treating a
+ * stray marker in $HOME or above as a workspace anchor.
+ */
+export declare function findWorkspaceRoot(startDir?: string): string | null;
+/**
+ * Read optional workspace marker config (id override). Returns {} when the
+ * marker is empty or unparseable — callers should not throw on config errors.
+ */
+export declare function readWorkspaceMarkerConfig(workspaceRoot: string): WorkspaceMarkerConfig;
 /**
  * Get the git worktree root for the current or specified directory.
  * Returns null if not in a git repository.
@@ -37,6 +65,22 @@ export declare function getWorktreeRoot(cwd?: string): string | null;
  * @throws Error if path contains traversal sequences
  */
 export declare function validatePath(inputPath: string): void;
+/**
+ * Scan sibling subdirs of a workspace anchor for pre-existing .omc/state/ content.
+ * Deduplicated per session via a disk marker so repeated hook firings within the
+ * same session don't re-stat siblings or re-emit. A fresh session (new sessionId)
+ * will re-warn — intentional, since the user may not have seen the prior warning.
+ *
+ * Call this once per session (e.g. from session-start.mjs) rather than on every
+ * getOmcRoot() invocation to keep the hot path free of readdirSync calls.
+ */
+export declare function warnSiblingRetrofit(workspaceAnchor: string, sessionId?: string): void;
+/**
+ * Clear the sibling retrofit warning cache (useful for testing).
+ * Also removes any disk markers under the given omcStateDir when provided.
+ * @internal
+ */
+export declare function clearSiblingRetrofitWarnings(omcStateDir?: string): void;
 /**
  * Clear the dual-directory warning cache (useful for testing).
  * @internal
@@ -83,6 +127,7 @@ export declare function resolveOmcPath(relativePath: string, worktreeRoot?: stri
  * State files follow the naming convention: {mode}-state.json
  * Examples: ralph-state.json, ultrawork-state.json, autopilot-state.json
  *
+ * @deprecated Use resolveSessionStatePaths instead.
  * @param stateName - State name (e.g., "ralph", "ultrawork", or "ralph-state")
  * @param worktreeRoot - Optional worktree root
  * @returns Absolute path to state file
@@ -176,12 +221,81 @@ export declare function isValidTranscriptPath(transcriptPath: string): boolean;
  * Resolve a session-scoped state file path.
  * Path: {omcRoot}/state/sessions/{sessionId}/{mode}-state.json
  *
+ * @deprecated Use resolveSessionStatePaths instead.
  * @param stateName - State name (e.g., "ralph", "ultrawork")
  * @param sessionId - Session identifier
  * @param worktreeRoot - Optional worktree root
  * @returns Absolute path to session-scoped state file
  */
 export declare function resolveSessionStatePath(stateName: string, sessionId: string, worktreeRoot?: string): string;
+/**
+ * Branded path types prevent silently passing a read-only fallback path to a
+ * writer (or vice versa) across 19+ call sites. The brand is intentionally
+ * structural-only (no runtime cost) — TS-level discrimination.
+ *
+ * Producer of the brand: `resolveSessionStatePaths()` exclusively.
+ * Consumers (writeModeState / readModeState etc.) accept only the branded
+ * variant for their direction, so a hook that grabs `effectiveRead` when it
+ * meant `effectiveWrite` becomes a compile-time error.
+ */
+export type ReadPath = string & {
+    readonly __brand: 'ReadPath';
+};
+export type WritePath = string & {
+    readonly __brand: 'WritePath';
+};
+/**
+ * Resolved paths for a session-scoped state file. Use `effectiveRead` for
+ * reads (probes session-scoped first, then legacy fallback) and
+ * `effectiveWrite` for writes (always session-scoped when sessionId is
+ * provided; legacy root only when sessionId is absent — back-compat mode).
+ *
+ * Fields:
+ *  - `sessionScoped`: `.omc/state/sessions/{sessionId}/{name}.json` (or empty when no sid).
+ *  - `legacy`: `.omc/state/{name}.json` — preserved for backwards-compat reads.
+ *  - `effectiveRead`: brand-typed path the caller should READ from.
+ *    When sid is set and the session-scoped file exists, this is sessionScoped;
+ *    otherwise legacy.
+ *  - `effectiveWrite`: brand-typed path the caller should WRITE to.
+ *    When sid is set, always sessionScoped. When sid is absent, legacy.
+ */
+export interface SessionStatePaths {
+    sessionScoped: string;
+    legacy: string;
+    effectiveRead: ReadPath;
+    effectiveWrite: WritePath;
+}
+/**
+ * Options for resolveSessionStatePaths.
+ *
+ * `migrate`: opt-in one-shot legacy→session copy. Default: false (read-legacy-as-
+ * fallback, write session-only). When migrate=true OR `OMC_MIGRATE_LEGACY_STATE=1`
+ * is set, callers that wrap their write through a migration helper will copy the
+ * legacy file using a `.migrating` sentinel + atomic rename for crash recovery.
+ */
+export interface ResolveSessionStatePathsOptions {
+    migrate?: boolean;
+}
+/**
+ * Canonical session-scoped state path resolver. Returns a branded struct so
+ * callers cannot accidentally write to the read-fallback path. See
+ * `SessionStatePaths` for field semantics.
+ *
+ * When `sessionId` is undefined or empty, the function operates in legacy
+ * mode: `sessionScoped` is the empty string, both `effectiveRead` and
+ * `effectiveWrite` brand the legacy path. This preserves single-plan/single-
+ * session repos unchanged.
+ *
+ * @internal Internal-ish helpers (resolveStatePath, resolveSessionStatePath
+ * single-string variant) remain for back-compat but new code should prefer
+ * this helper.
+ */
+export declare function resolveSessionStatePaths(stateName: string, sessionId?: string, worktreeRoot?: string, _opts?: ResolveSessionStatePathsOptions): SessionStatePaths;
+/**
+ * Whether opt-in legacy→session migration is enabled for this process.
+ * Checked by writers that wrap migration around their write step.
+ */
+export declare function isLegacyStateMigrationEnabled(): boolean;
 /**
  * Get the session state directory path.
  * Path: {omcRoot}/state/sessions/{sessionId}/
@@ -265,4 +379,5 @@ export declare function validateWorkingDirectory(workingDirectory?: string): str
  * rejected.
  */
 export declare function validateWorkingDirectoryOrLinkedWorktree(workingDirectory?: string): string;
+export {};
 //# sourceMappingURL=worktree-paths.d.ts.map

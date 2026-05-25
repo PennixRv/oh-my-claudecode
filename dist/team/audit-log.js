@@ -9,9 +9,10 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, statSync, renameSync, writeFileSync, lstatSync, unlinkSync } from 'node:fs';
 import { appendFileWithMode, ensureDirWithMode, validateResolvedPath } from './fs-utils.js';
+import { getOmcRoot } from '../lib/worktree-paths.js';
 const DEFAULT_MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB
 function getLogPath(workingDirectory, teamName) {
-    return join(workingDirectory, '.omc', 'logs', `team-bridge-${teamName}.jsonl`);
+    return join(getOmcRoot(workingDirectory), 'logs', `team-bridge-${teamName}.jsonl`);
 }
 /**
  * Append an audit event to the team's audit log.
@@ -19,7 +20,7 @@ function getLogPath(workingDirectory, teamName) {
  */
 export function logAuditEvent(workingDirectory, event) {
     const logPath = getLogPath(workingDirectory, event.teamName);
-    const dir = join(workingDirectory, '.omc', 'logs');
+    const dir = join(getOmcRoot(workingDirectory), 'logs');
     validateResolvedPath(logPath, workingDirectory);
     ensureDirWithMode(dir);
     const line = JSON.stringify(event) + '\n';
@@ -78,7 +79,7 @@ export function rotateAuditLog(workingDirectory, teamName, maxSizeBytes = DEFAUL
     const rotated = lines.slice(keepFrom).join('\n') + '\n';
     // Atomic write: write to a process-unique temp file, then rename
     const tmpPath = logPath + '.' + randomUUID() + '.tmp';
-    const logsDir = join(workingDirectory, '.omc', 'logs');
+    const logsDir = join(getOmcRoot(workingDirectory), 'logs');
     validateResolvedPath(tmpPath, logsDir);
     // Prevent symlink attacks: if tmp path exists as symlink, remove it
     if (existsSync(tmpPath)) {

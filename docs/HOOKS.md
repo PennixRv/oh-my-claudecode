@@ -304,6 +304,7 @@ Manages permanent project-level memory.
   - `project-memory-session.mjs` (SessionStart): Loads project memory when session starts
   - `project-memory-posttool.mjs` (PostToolUse): Updates memory after tool use
   - `project-memory-precompact.mjs` (PreCompact): Preserves memory before compaction
+- **Multi-session contract**: Both writers acquire `withProjectMemoryLock` (see `src/lib/file-lock.ts`) before reading or rewriting `project-memory.json`. Concurrent sessions in the same workspace serialize through this lock, so lost-update races between parallel Claude sessions are impossible. See `tests/integration/concurrent-project-memory.test.ts` for the regression guard.
 
 Two types of data are stored in project-memory:
 

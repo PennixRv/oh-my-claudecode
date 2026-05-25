@@ -21,6 +21,7 @@ import { isSkininthegamebrosUser } from '../utils/skininthegamebros-user.js';
 import { syncUnifiedMcpRegistryTargets } from './mcp-registry.js';
 import { OMC_CONFIG_FILE_REL } from '../lib/paths.js';
 import { buildHudWrapper } from '../lib/hud-wrapper-template.js';
+import { getOmcRoot } from '../lib/worktree-paths.js';
 import { syncOmcLearnedUserSkillsForClaudeCode } from '../utils/user-skill-compat.js';
 /** Claude Code configuration directory */
 export const CLAUDE_CONFIG_DIR = getClaudeConfigDir();
@@ -1767,6 +1768,22 @@ export function install(options = {}) {
             };
             writeFileSync(VERSION_FILE, JSON.stringify(versionMetadata, null, 2));
             log('Saved version metadata');
+            // Write workspace-level template-version stamp for drift detection in session-start
+            try {
+                const omcRoot = getOmcRoot();
+                mkdirSync(omcRoot, { recursive: true });
+                const templateVersionStamp = {
+                    version: targetVersion,
+                    installedAt: new Date().toISOString(),
+                    pluginRoot: process.env.CLAUDE_PLUGIN_ROOT ?? null
+                };
+                writeFileSync(join(omcRoot, 'template-version.json'), JSON.stringify(templateVersionStamp, null, 2));
+                log('Saved template-version stamp');
+            }
+            catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                log(`  Warning: Could not write template-version stamp (non-fatal): ${message}`);
+            }
         }
         else {
             log('Skipping version metadata (project-scoped plugin)');

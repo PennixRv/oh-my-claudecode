@@ -2233,8 +2233,8 @@ var require_resolve = __commonJS({
       }
       return count;
     }
-    function getFullPath(resolver, id = "", normalize2) {
-      if (normalize2 !== false)
+    function getFullPath(resolver, id = "", normalize3) {
+      if (normalize3 !== false)
         id = normalizeId(id);
       const p = resolver.parse(id);
       return _getFullPath(resolver, p);
@@ -2982,7 +2982,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve3.call(this, root, ref);
+      let _sch = resolve4.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -3009,7 +3009,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve3(root, ref) {
+    function resolve4(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3107,9 +3107,6 @@ var require_utils = __commonJS({
     "use strict";
     var isUUID = RegExp.prototype.test.bind(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu);
     var isIPv4 = RegExp.prototype.test.bind(/^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)$/u);
-    var isHexPair = RegExp.prototype.test.bind(/^[\da-f]{2}$/iu);
-    var isUnreserved = RegExp.prototype.test.bind(/^[\da-z\-._~]$/iu);
-    var isPathCharacter = RegExp.prototype.test.bind(/^[\da-z\-._~!$&'()*+,;=:@/]$/iu);
     function stringArrayToHexStripped(input) {
       let acc = "";
       let code = 0;
@@ -3302,77 +3299,27 @@ var require_utils = __commonJS({
       }
       return output.join("");
     }
-    var HOST_DELIMS = { "@": "%40", "/": "%2F", "?": "%3F", "#": "%23", ":": "%3A" };
-    var HOST_DELIM_RE = /[@/?#:]/g;
-    var HOST_DELIM_NO_COLON_RE = /[@/?#]/g;
-    function reescapeHostDelimiters(host, isIP) {
-      const re = isIP ? HOST_DELIM_NO_COLON_RE : HOST_DELIM_RE;
-      re.lastIndex = 0;
-      return host.replace(re, (ch) => HOST_DELIMS[ch]);
-    }
-    function normalizePercentEncoding(input, decodeUnreserved = false) {
-      if (input.indexOf("%") === -1) {
-        return input;
+    function normalizeComponentEncoding(component, esc2) {
+      const func = esc2 !== true ? escape : unescape;
+      if (component.scheme !== void 0) {
+        component.scheme = func(component.scheme);
       }
-      let output = "";
-      for (let i = 0; i < input.length; i++) {
-        if (input[i] === "%" && i + 2 < input.length) {
-          const hex = input.slice(i + 1, i + 3);
-          if (isHexPair(hex)) {
-            const normalizedHex = hex.toUpperCase();
-            const decoded = String.fromCharCode(parseInt(normalizedHex, 16));
-            if (decodeUnreserved && isUnreserved(decoded)) {
-              output += decoded;
-            } else {
-              output += "%" + normalizedHex;
-            }
-            i += 2;
-            continue;
-          }
-        }
-        output += input[i];
+      if (component.userinfo !== void 0) {
+        component.userinfo = func(component.userinfo);
       }
-      return output;
-    }
-    function normalizePathEncoding(input) {
-      let output = "";
-      for (let i = 0; i < input.length; i++) {
-        if (input[i] === "%" && i + 2 < input.length) {
-          const hex = input.slice(i + 1, i + 3);
-          if (isHexPair(hex)) {
-            const normalizedHex = hex.toUpperCase();
-            const decoded = String.fromCharCode(parseInt(normalizedHex, 16));
-            if (decoded !== "." && isUnreserved(decoded)) {
-              output += decoded;
-            } else {
-              output += "%" + normalizedHex;
-            }
-            i += 2;
-            continue;
-          }
-        }
-        if (isPathCharacter(input[i])) {
-          output += input[i];
-        } else {
-          output += escape(input[i]);
-        }
+      if (component.host !== void 0) {
+        component.host = func(component.host);
       }
-      return output;
-    }
-    function escapePreservingEscapes(input) {
-      let output = "";
-      for (let i = 0; i < input.length; i++) {
-        if (input[i] === "%" && i + 2 < input.length) {
-          const hex = input.slice(i + 1, i + 3);
-          if (isHexPair(hex)) {
-            output += "%" + hex.toUpperCase();
-            i += 2;
-            continue;
-          }
-        }
-        output += escape(input[i]);
+      if (component.path !== void 0) {
+        component.path = func(component.path);
       }
-      return output;
+      if (component.query !== void 0) {
+        component.query = func(component.query);
+      }
+      if (component.fragment !== void 0) {
+        component.fragment = func(component.fragment);
+      }
+      return component;
     }
     function recomposeAuthority(component) {
       const uriTokens = [];
@@ -3387,7 +3334,7 @@ var require_utils = __commonJS({
           if (ipV6res.isIPV6 === true) {
             host = `[${ipV6res.escapedHost}]`;
           } else {
-            host = reescapeHostDelimiters(host, false);
+            host = component.host;
           }
         }
         uriTokens.push(host);
@@ -3401,10 +3348,7 @@ var require_utils = __commonJS({
     module2.exports = {
       nonSimpleDomain,
       recomposeAuthority,
-      reescapeHostDelimiters,
-      normalizePercentEncoding,
-      normalizePathEncoding,
-      escapePreservingEscapes,
+      normalizeComponentEncoding,
       removeDotSegments,
       isIPv4,
       isUUID,
@@ -3628,67 +3572,67 @@ var require_schemes = __commonJS({
 var require_fast_uri = __commonJS({
   "node_modules/fast-uri/index.js"(exports2, module2) {
     "use strict";
-    var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizePercentEncoding, normalizePathEncoding, escapePreservingEscapes, reescapeHostDelimiters, isIPv4, nonSimpleDomain } = require_utils();
+    var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizeComponentEncoding, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
-    function normalize2(uri, options) {
+    function normalize3(uri, options) {
       if (typeof uri === "string") {
         uri = /** @type {T} */
-        normalizeString(uri, options);
+        serialize(parse5(uri, options), options);
       } else if (typeof uri === "object") {
         uri = /** @type {T} */
         parse5(serialize(uri, options), options);
       }
       return uri;
     }
-    function resolve3(baseURI, relativeURI, options) {
+    function resolve4(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse5(baseURI, schemelessOptions), parse5(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative2, options, skipNormalization) {
+    function resolveComponent(base, relative3, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse5(serialize(base, options), options);
-        relative2 = parse5(serialize(relative2, options), options);
+        relative3 = parse5(serialize(relative3, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative2.scheme) {
-        target.scheme = relative2.scheme;
-        target.userinfo = relative2.userinfo;
-        target.host = relative2.host;
-        target.port = relative2.port;
-        target.path = removeDotSegments(relative2.path || "");
-        target.query = relative2.query;
+      if (!options.tolerant && relative3.scheme) {
+        target.scheme = relative3.scheme;
+        target.userinfo = relative3.userinfo;
+        target.host = relative3.host;
+        target.port = relative3.port;
+        target.path = removeDotSegments(relative3.path || "");
+        target.query = relative3.query;
       } else {
-        if (relative2.userinfo !== void 0 || relative2.host !== void 0 || relative2.port !== void 0) {
-          target.userinfo = relative2.userinfo;
-          target.host = relative2.host;
-          target.port = relative2.port;
-          target.path = removeDotSegments(relative2.path || "");
-          target.query = relative2.query;
+        if (relative3.userinfo !== void 0 || relative3.host !== void 0 || relative3.port !== void 0) {
+          target.userinfo = relative3.userinfo;
+          target.host = relative3.host;
+          target.port = relative3.port;
+          target.path = removeDotSegments(relative3.path || "");
+          target.query = relative3.query;
         } else {
-          if (!relative2.path) {
+          if (!relative3.path) {
             target.path = base.path;
-            if (relative2.query !== void 0) {
-              target.query = relative2.query;
+            if (relative3.query !== void 0) {
+              target.query = relative3.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative2.path[0] === "/") {
-              target.path = removeDotSegments(relative2.path);
+            if (relative3.path[0] === "/") {
+              target.path = removeDotSegments(relative3.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative2.path;
+                target.path = "/" + relative3.path;
               } else if (!base.path) {
-                target.path = relative2.path;
+                target.path = relative3.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative2.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative3.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative2.query;
+            target.query = relative3.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3696,13 +3640,23 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative2.fragment;
+      target.fragment = relative3.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
-      const normalizedA = normalizeComparableURI(uriA, options);
-      const normalizedB = normalizeComparableURI(uriB, options);
-      return normalizedA !== void 0 && normalizedB !== void 0 && normalizedA.toLowerCase() === normalizedB.toLowerCase();
+      if (typeof uriA === "string") {
+        uriA = unescape(uriA);
+        uriA = serialize(normalizeComponentEncoding(parse5(uriA, options), true), { ...options, skipEscape: true });
+      } else if (typeof uriA === "object") {
+        uriA = serialize(normalizeComponentEncoding(uriA, true), { ...options, skipEscape: true });
+      }
+      if (typeof uriB === "string") {
+        uriB = unescape(uriB);
+        uriB = serialize(normalizeComponentEncoding(parse5(uriB, options), true), { ...options, skipEscape: true });
+      } else if (typeof uriB === "object") {
+        uriB = serialize(normalizeComponentEncoding(uriB, true), { ...options, skipEscape: true });
+      }
+      return uriA.toLowerCase() === uriB.toLowerCase();
     }
     function serialize(cmpts, opts) {
       const component = {
@@ -3727,12 +3681,12 @@ var require_fast_uri = __commonJS({
       if (schemeHandler && schemeHandler.serialize) schemeHandler.serialize(component, options);
       if (component.path !== void 0) {
         if (!options.skipEscape) {
-          component.path = escapePreservingEscapes(component.path);
+          component.path = escape(component.path);
           if (component.scheme !== void 0) {
             component.path = component.path.split("%3A").join(":");
           }
         } else {
-          component.path = normalizePercentEncoding(component.path);
+          component.path = unescape(component.path);
         }
       }
       if (options.reference !== "suffix" && component.scheme) {
@@ -3767,16 +3721,7 @@ var require_fast_uri = __commonJS({
       return uriTokens.join("");
     }
     var URI_PARSE = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u;
-    function getParseError(parsed, matches) {
-      if (matches[2] !== void 0 && parsed.path && parsed.path[0] !== "/") {
-        return 'URI path must start with "/" when authority is present.';
-      }
-      if (typeof parsed.port === "number" && (parsed.port < 0 || parsed.port > 65535)) {
-        return "URI port is malformed.";
-      }
-      return void 0;
-    }
-    function parseWithStatus(uri, opts) {
+    function parse5(uri, opts) {
       const options = Object.assign({}, opts);
       const parsed = {
         scheme: void 0,
@@ -3787,7 +3732,6 @@ var require_fast_uri = __commonJS({
         query: void 0,
         fragment: void 0
       };
-      let malformedAuthorityOrPort = false;
       let isIP = false;
       if (options.reference === "suffix") {
         if (options.scheme) {
@@ -3807,11 +3751,6 @@ var require_fast_uri = __commonJS({
         parsed.fragment = matches[8];
         if (isNaN(parsed.port)) {
           parsed.port = matches[5];
-        }
-        const parseError = getParseError(parsed, matches);
-        if (parseError !== void 0) {
-          parsed.error = parsed.error || parseError;
-          malformedAuthorityOrPort = true;
         }
         if (parsed.host) {
           const ipv4result = isIPv4(parsed.host);
@@ -3851,18 +3790,14 @@ var require_fast_uri = __commonJS({
               parsed.scheme = unescape(parsed.scheme);
             }
             if (parsed.host !== void 0) {
-              parsed.host = reescapeHostDelimiters(unescape(parsed.host), isIP);
+              parsed.host = unescape(parsed.host);
             }
           }
           if (parsed.path) {
-            parsed.path = normalizePathEncoding(parsed.path);
+            parsed.path = escape(unescape(parsed.path));
           }
           if (parsed.fragment) {
-            try {
-              parsed.fragment = encodeURI(decodeURIComponent(parsed.fragment));
-            } catch {
-              parsed.error = parsed.error || "URI malformed";
-            }
+            parsed.fragment = encodeURI(decodeURIComponent(parsed.fragment));
           }
         }
         if (schemeHandler && schemeHandler.parse) {
@@ -3871,34 +3806,12 @@ var require_fast_uri = __commonJS({
       } else {
         parsed.error = parsed.error || "URI can not be parsed.";
       }
-      return { parsed, malformedAuthorityOrPort };
-    }
-    function parse5(uri, opts) {
-      return parseWithStatus(uri, opts).parsed;
-    }
-    function normalizeString(uri, opts) {
-      return normalizeStringWithStatus(uri, opts).normalized;
-    }
-    function normalizeStringWithStatus(uri, opts) {
-      const { parsed, malformedAuthorityOrPort } = parseWithStatus(uri, opts);
-      return {
-        normalized: malformedAuthorityOrPort ? uri : serialize(parsed, opts),
-        malformedAuthorityOrPort
-      };
-    }
-    function normalizeComparableURI(uri, opts) {
-      if (typeof uri === "string") {
-        const { normalized, malformedAuthorityOrPort } = normalizeStringWithStatus(uri, opts);
-        return malformedAuthorityOrPort ? void 0 : normalized;
-      }
-      if (typeof uri === "object") {
-        return serialize(uri, opts);
-      }
+      return parsed;
     }
     var fastUri = {
       SCHEMES,
-      normalize: normalize2,
-      resolve: resolve3,
+      normalize: normalize3,
+      resolve: resolve4,
       resolveComponent,
       equal,
       serialize,
@@ -16760,7 +16673,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve3) => setTimeout(resolve3, pollInterval));
+        await new Promise((resolve4) => setTimeout(resolve4, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -16777,7 +16690,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve4, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -16855,7 +16768,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve3(parseResult.data);
+            resolve4(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -17116,12 +17029,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve4, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve3, interval);
+      const timeoutId = setTimeout(resolve4, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -17850,12 +17763,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve3) => {
+    return new Promise((resolve4) => {
       const json = serializeMessage(message);
       if (this._stdout.write(json)) {
-        resolve3();
+        resolve4();
       } else {
-        this._stdout.once("drain", resolve3);
+        this._stdout.once("drain", resolve4);
       }
     });
   }
@@ -17863,15 +17776,17 @@ var StdioServerTransport = class {
 
 // src/mcp/team-server.ts
 var import_node_crypto = require("node:crypto");
-var import_child_process3 = require("child_process");
-var import_path9 = require("path");
+var import_child_process5 = require("child_process");
+var import_path10 = require("path");
 var import_url = require("url");
-var import_fs8 = require("fs");
+var import_fs9 = require("fs");
 var import_promises3 = require("fs/promises");
 
 // src/team/tmux-session.ts
-var import_fs = require("fs");
-var import_path2 = require("path");
+var import_fs2 = require("fs");
+var import_child_process3 = require("child_process");
+var import_util6 = require("util");
+var import_path4 = require("path");
 var import_promises = __toESM(require("fs/promises"), 1);
 
 // src/team/team-name.ts
@@ -17885,9 +17800,195 @@ function validateTeamName(teamName) {
   return teamName;
 }
 
-// src/cli/tmux-utils.ts
+// src/lib/worktree-paths.ts
+var import_crypto = require("crypto");
 var import_child_process = require("child_process");
+var import_fs = require("fs");
+var import_os2 = require("os");
+var import_path2 = require("path");
+
+// src/utils/config-dir.ts
 var import_path = require("path");
+var import_os = require("os");
+
+// src/lib/worktree-paths.ts
+var WORKSPACE_MARKER = ".omc-workspace";
+var OmcPaths = {
+  ROOT: ".omc",
+  STATE: ".omc/state",
+  SESSIONS: ".omc/state/sessions",
+  PLANS: ".omc/plans",
+  RESEARCH: ".omc/research",
+  NOTEPAD: ".omc/notepad.md",
+  PROJECT_MEMORY: ".omc/project-memory.json",
+  DRAFTS: ".omc/drafts",
+  NOTEPADS: ".omc/notepads",
+  LOGS: ".omc/logs",
+  SCIENTIST: ".omc/scientist",
+  AUTOPILOT: ".omc/autopilot",
+  SKILLS: ".omc/skills",
+  SHARED_MEMORY: ".omc/state/shared-memory",
+  DEEPINIT_MANIFEST: ".omc/deepinit-manifest.json"
+};
+var MAX_WORKTREE_CACHE_SIZE = 8;
+var worktreeCacheMap = /* @__PURE__ */ new Map();
+var workspaceCacheMap = /* @__PURE__ */ new Map();
+function findWorkspaceRoot(startDir) {
+  if (process.env.OMC_DISABLE_MULTIREPO === "1") return null;
+  const effectiveStart = startDir || process.cwd();
+  let current;
+  try {
+    current = (0, import_path2.resolve)(effectiveStart);
+  } catch {
+    return null;
+  }
+  if (workspaceCacheMap.has(current)) {
+    const cached2 = workspaceCacheMap.get(current) ?? null;
+    workspaceCacheMap.delete(current);
+    workspaceCacheMap.set(current, cached2);
+    return cached2;
+  }
+  const home = (() => {
+    try {
+      return (0, import_path2.resolve)((0, import_os2.homedir)());
+    } catch {
+      return null;
+    }
+  })();
+  let cursor = current;
+  let result = null;
+  while (true) {
+    if ((0, import_fs.existsSync)((0, import_path2.join)(cursor, WORKSPACE_MARKER))) {
+      result = cursor;
+      break;
+    }
+    const parent = (0, import_path2.dirname)(cursor);
+    if (parent === cursor) break;
+    if (home && cursor === home) break;
+    cursor = parent;
+  }
+  if (workspaceCacheMap.size >= MAX_WORKTREE_CACHE_SIZE) {
+    const oldest = workspaceCacheMap.keys().next().value;
+    if (oldest !== void 0) workspaceCacheMap.delete(oldest);
+  }
+  workspaceCacheMap.set(current, result);
+  return result;
+}
+function readWorkspaceMarkerConfig(workspaceRoot) {
+  try {
+    const raw = (0, import_fs.readFileSync)((0, import_path2.join)(workspaceRoot, WORKSPACE_MARKER), "utf-8").trim();
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+function getWorktreeRoot(cwd) {
+  const effectiveCwd = cwd || process.cwd();
+  if (worktreeCacheMap.has(effectiveCwd)) {
+    const root = worktreeCacheMap.get(effectiveCwd);
+    worktreeCacheMap.delete(effectiveCwd);
+    worktreeCacheMap.set(effectiveCwd, root);
+    return root || null;
+  }
+  try {
+    const root = (0, import_child_process.execSync)("git rev-parse --show-toplevel", {
+      cwd: effectiveCwd,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 5e3
+    }).trim();
+    if (worktreeCacheMap.size >= MAX_WORKTREE_CACHE_SIZE) {
+      const oldest = worktreeCacheMap.keys().next().value;
+      if (oldest !== void 0) {
+        worktreeCacheMap.delete(oldest);
+      }
+    }
+    worktreeCacheMap.set(effectiveCwd, root);
+    return root;
+  } catch {
+    return null;
+  }
+}
+var dualDirWarnings = /* @__PURE__ */ new Set();
+function getProjectIdentifier(worktreeRoot) {
+  const root = worktreeRoot || getWorktreeRoot() || process.cwd();
+  const workspaceRoot = findWorkspaceRoot(root);
+  if (workspaceRoot) {
+    const cfg = readWorkspaceMarkerConfig(workspaceRoot);
+    if (cfg.id && typeof cfg.id === "string" && cfg.id.trim()) {
+      const safeId = cfg.id.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+      const hash3 = (0, import_crypto.createHash)("sha256").update(safeId).digest("hex").slice(0, 16);
+      return `${safeId}-${hash3}`;
+    }
+    const hash2 = (0, import_crypto.createHash)("sha256").update(workspaceRoot).digest("hex").slice(0, 16);
+    const dirName2 = (0, import_path2.basename)(workspaceRoot).replace(/[^a-zA-Z0-9_-]/g, "_");
+    return `${dirName2}-${hash2}`;
+  }
+  let source;
+  try {
+    const remoteUrl = (0, import_child_process.execSync)("git remote get-url origin", {
+      cwd: root,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"]
+    }).trim();
+    source = remoteUrl || root;
+  } catch {
+    source = root;
+  }
+  let primaryRoot = root;
+  try {
+    const commonDir = (0, import_child_process.execSync)("git rev-parse --path-format=absolute --git-common-dir", {
+      cwd: root,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 5e3
+    }).trim();
+    const isGitDir = (0, import_path2.basename)(commonDir) === ".git";
+    const isSubmodule = commonDir.includes(`${import_path2.sep}.git${import_path2.sep}modules`);
+    if (isGitDir && !isSubmodule) {
+      const resolved = (0, import_path2.dirname)(commonDir);
+      if (resolved && resolved !== root) {
+        primaryRoot = resolved;
+      }
+    }
+  } catch {
+  }
+  const hash = (0, import_crypto.createHash)("sha256").update(source).digest("hex").slice(0, 16);
+  const dirName = (0, import_path2.basename)(primaryRoot).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `${dirName}-${hash}`;
+}
+function getOmcRoot(worktreeRoot) {
+  const customDir = process.env.OMC_STATE_DIR;
+  if (customDir) {
+    const root2 = worktreeRoot || getWorktreeRoot() || process.cwd();
+    const projectId = getProjectIdentifier(root2);
+    const centralizedPath = (0, import_path2.join)(customDir, projectId);
+    const legacyPath = (0, import_path2.join)(root2, OmcPaths.ROOT);
+    const warningKey = `${legacyPath}:${centralizedPath}`;
+    if (!dualDirWarnings.has(warningKey) && (0, import_fs.existsSync)(legacyPath) && (0, import_fs.existsSync)(centralizedPath)) {
+      dualDirWarnings.add(warningKey);
+      console.warn(
+        `[omc] Both legacy state dir (${legacyPath}) and centralized state dir (${centralizedPath}) exist. Using centralized dir. Consider migrating data from the legacy dir and removing it.`
+      );
+    }
+    return centralizedPath;
+  }
+  const workspaceAnchor = findWorkspaceRoot(worktreeRoot);
+  if (workspaceAnchor) {
+    return (0, import_path2.join)(workspaceAnchor, OmcPaths.ROOT);
+  }
+  const root = worktreeRoot || getWorktreeRoot() || process.cwd();
+  return (0, import_path2.join)(root, OmcPaths.ROOT);
+}
+
+// src/cli/tmux-utils.ts
+var import_child_process2 = require("child_process");
+var import_path3 = require("path");
 var import_util5 = require("util");
 function tmuxEnv() {
   const { TMUX: _, ...env } = process.env;
@@ -17919,7 +18020,7 @@ function resolveTmuxInvocation(args) {
 async function tmuxExecAsync(args, opts) {
   const { stripTmux: _, timeout, ...rest } = opts ?? {};
   const invocation = resolveTmuxInvocation(args);
-  return (0, import_util5.promisify)(import_child_process.execFile)(invocation.command, invocation.args, {
+  return (0, import_util5.promisify)(import_child_process2.execFile)(invocation.command, invocation.args, {
     encoding: "utf-8",
     env: resolveEnv(opts),
     ...timeout !== void 0 ? { timeout } : {},
@@ -17928,7 +18029,7 @@ async function tmuxExecAsync(args, opts) {
 }
 async function tmuxShellAsync(command, opts) {
   const { stripTmux: _, timeout, ...rest } = opts ?? {};
-  return (0, import_util5.promisify)(import_child_process.exec)(`tmux ${command}`, {
+  return (0, import_util5.promisify)(import_child_process2.exec)(`tmux ${command}`, {
     encoding: "utf-8",
     env: resolveEnv(opts),
     ...timeout !== void 0 ? { timeout } : {},
@@ -17947,14 +18048,14 @@ function resolveTmuxBinaryPath() {
     return "tmux";
   }
   try {
-    const result = (0, import_child_process.spawnSync)("where", ["tmux"], {
+    const result = (0, import_child_process2.spawnSync)("where", ["tmux"], {
       timeout: 5e3,
       encoding: "utf8"
     });
     if (result.status !== 0) return "tmux";
     const candidates = result.stdout?.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) ?? [];
     const first = candidates[0];
-    if (first && ((0, import_path.isAbsolute)(first) || import_path.win32.isAbsolute(first))) {
+    if (first && ((0, import_path3.isAbsolute)(first) || import_path3.win32.isAbsolute(first))) {
       return first;
     }
   } catch {
@@ -17964,6 +18065,38 @@ function resolveTmuxBinaryPath() {
 
 // src/team/tmux-session.ts
 var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+var execFileAsync = (0, import_util6.promisify)(import_child_process3.execFile);
+function detectTeamMultiplexerContext(env = process.env) {
+  if (env.TMUX) return "tmux";
+  if (env.CMUX_SURFACE_ID) return "cmux";
+  return "none";
+}
+function isCmuxContext() {
+  return detectTeamMultiplexerContext() === "cmux";
+}
+function isCmuxSurfaceTarget(value) {
+  return isCmuxContext() && typeof value === "string" && value.trim().length > 0 && !value.trim().startsWith("%");
+}
+async function cmuxExecAsync(args) {
+  const result = await execFileAsync("cmux", args, { encoding: "utf-8" });
+  return {
+    stdout: typeof result.stdout === "string" ? result.stdout : String(result.stdout ?? ""),
+    stderr: typeof result.stderr === "string" ? result.stderr : String(result.stderr ?? "")
+  };
+}
+async function cmuxSendSurface(surfaceId, text) {
+  await cmuxExecAsync(["send", "--surface", surfaceId, text]);
+}
+async function cmuxSendSurfaceKey(surfaceId, key) {
+  await cmuxExecAsync(["send-key", "--surface", surfaceId, key]);
+}
+async function cmuxCaptureSurface(surfaceId) {
+  const result = await cmuxExecAsync(["capture-pane", "--surface", surfaceId, "--scrollback"]);
+  return result.stdout;
+}
+async function cmuxCloseSurface(surfaceId) {
+  await cmuxExecAsync(["close-surface", "--surface", surfaceId]);
+}
 function sanitizeName(name) {
   const sanitized = name.replace(/[^a-zA-Z0-9-]/g, "");
   if (sanitized.length === 0) {
@@ -17979,11 +18112,31 @@ function normalizeTmuxCapture(value) {
 }
 async function capturePaneAsync(paneId) {
   try {
+    if (isCmuxSurfaceTarget(paneId)) {
+      return await cmuxCaptureSurface(paneId);
+    }
     const result = await tmuxExecAsync(["capture-pane", "-t", paneId, "-p", "-S", "-80"]);
     return result.stdout;
   } catch {
     return "";
   }
+}
+async function captureTeamPane(paneId) {
+  return capturePaneAsync(paneId);
+}
+async function sendTeamPaneKey(paneId, key) {
+  if (isCmuxSurfaceTarget(paneId)) {
+    await cmuxSendSurfaceKey(paneId, key);
+    return;
+  }
+  await tmuxExecAsync(["send-keys", "-t", paneId, key]);
+}
+async function killTeamPane(paneId) {
+  if (isCmuxSurfaceTarget(paneId)) {
+    await cmuxCloseSurface(paneId);
+    return;
+  }
+  await tmuxExecAsync(["kill-pane", "-t", paneId]);
 }
 function paneHasTrustPrompt(captured) {
   const lines = captured.split("\n").map((l) => l.replace(/\r/g, "").trim()).filter((l) => l.length > 0);
@@ -18034,6 +18187,7 @@ function paneTailContainsLiteralLine(captured, text) {
   return normalizeTmuxCapture(captured).includes(normalizeTmuxCapture(text));
 }
 async function paneInCopyMode(paneId) {
+  if (isCmuxSurfaceTarget(paneId)) return false;
   try {
     const result = await tmuxCmdAsync(["display-message", "-t", paneId, "-p", "#{pane_in_mode}"]);
     return result.stdout.trim() === "1";
@@ -18059,7 +18213,7 @@ async function sendToWorker(_sessionName, paneId, message) {
   }
   try {
     const sendKey = async (key) => {
-      await tmuxExecAsync(["send-keys", "-t", paneId, key]);
+      await sendTeamPaneKey(paneId, key);
     };
     if (await paneInCopyMode(paneId)) {
       return false;
@@ -18075,7 +18229,11 @@ async function sendToWorker(_sessionName, paneId, message) {
       await sendKey("C-m");
       await sleep(200);
     }
-    await tmuxExecAsync(["send-keys", "-t", paneId, "-l", "--", message]);
+    if (isCmuxSurfaceTarget(paneId)) {
+      await cmuxSendSurface(paneId, message);
+    } else {
+      await tmuxExecAsync(["send-keys", "-t", paneId, "-l", "--", message]);
+    }
     await sleep(150);
     const submitRounds = 6;
     for (let round = 0; round < submitRounds; round++) {
@@ -18114,7 +18272,11 @@ async function sendToWorker(_sessionName, paneId, message) {
       if (await paneInCopyMode(paneId)) {
         return false;
       }
-      await tmuxExecAsync(["send-keys", "-t", paneId, "-l", "--", message]);
+      if (isCmuxSurfaceTarget(paneId)) {
+        await cmuxSendSurface(paneId, message);
+      } else {
+        await tmuxExecAsync(["send-keys", "-t", paneId, "-l", "--", message]);
+      }
       await sleep(120);
       for (let round = 0; round < 4; round++) {
         await sendKey("C-m");
@@ -18147,6 +18309,14 @@ function isTmuxPaneNotFoundError(error2) {
   return /can't find pane|can't find window|can't find session|no such pane|pane not found|unknown pane/.test(text);
 }
 async function getWorkerLiveness(paneId) {
+  if (isCmuxSurfaceTarget(paneId)) {
+    try {
+      await cmuxCaptureSurface(paneId);
+      return "alive";
+    } catch {
+      return "unknown";
+    }
+  }
   try {
     const result = await tmuxCmdAsync([
       "display-message",
@@ -18166,7 +18336,7 @@ async function isWorkerAlive(paneId) {
 async function killWorkerPanes(opts) {
   const { paneIds, leaderPaneId, teamName, cwd, graceMs = 1e4 } = opts;
   if (!paneIds.length) return;
-  const shutdownPath = (0, import_path2.join)(cwd, ".omc", "state", "team", teamName, "shutdown.json");
+  const shutdownPath = (0, import_path4.join)(getOmcRoot(cwd), "state", "team", teamName, "shutdown.json");
   try {
     await import_promises.default.writeFile(shutdownPath, JSON.stringify({ requestedAt: Date.now() }));
     const aliveChecks = await Promise.all(paneIds.map((id) => isWorkerAlive(id)));
@@ -18178,7 +18348,7 @@ async function killWorkerPanes(opts) {
   for (const paneId of paneIds) {
     if (paneId === leaderPaneId) continue;
     try {
-      await tmuxExecAsync(["kill-pane", "-t", paneId]);
+      await killTeamPane(paneId);
     } catch {
     }
   }
@@ -18190,7 +18360,7 @@ async function killTeamSession(sessionName, workerPaneIds, leaderPaneId, options
     for (const id of workerPaneIds) {
       if (id === leaderPaneId) continue;
       try {
-        await tmuxExecAsync(["kill-pane", "-t", id]);
+        await killTeamPane(id);
       } catch {
       }
     }
@@ -18221,12 +18391,12 @@ async function killTeamSession(sessionName, workerPaneIds, leaderPaneId, options
 }
 
 // src/team/monitor.ts
-var import_fs2 = require("fs");
+var import_fs3 = require("fs");
 var import_promises2 = require("fs/promises");
-var import_path4 = require("path");
+var import_path6 = require("path");
 
 // src/team/state-paths.ts
-var import_path3 = require("path");
+var import_path5 = require("path");
 function normalizeTaskFileStem(taskId) {
   const trimmed = String(taskId).trim().replace(/\.json$/i, "");
   if (/^task-\d+$/.test(trimmed)) return trimmed;
@@ -18266,7 +18436,7 @@ var TeamPaths = {
   shutdownRequest: (teamName, workerName) => `.omc/state/team/${teamName}/workers/${workerName}/shutdown-request.json`
 };
 function absPath(cwd, relativePath) {
-  return (0, import_path3.isAbsolute)(relativePath) ? relativePath : (0, import_path3.join)(cwd, relativePath);
+  return (0, import_path5.isAbsolute)(relativePath) ? relativePath : (0, import_path5.join)(cwd, relativePath);
 }
 
 // src/team/governance.ts
@@ -18406,7 +18576,7 @@ function canonicalizeTeamConfigWorkers(config2) {
 // src/team/monitor.ts
 async function readJsonSafe(filePath) {
   try {
-    if (!(0, import_fs2.existsSync)(filePath)) return null;
+    if (!(0, import_fs3.existsSync)(filePath)) return null;
     const raw = await (0, import_promises2.readFile)(filePath, "utf-8");
     return JSON.parse(raw);
   } catch {
@@ -18467,12 +18637,7 @@ var DEFAULT_NUDGE_CONFIG = {
   message: "Continue working on your assigned task and report concrete progress (not ACK-only)."
 };
 async function capturePane(paneId) {
-  try {
-    const result = await tmuxExecAsync(["capture-pane", "-t", paneId, "-p", "-S", "-80"]);
-    return result.stdout ?? "";
-  } catch {
-    return "";
-  }
+  return captureTeamPane(paneId);
 }
 async function isPaneIdle(paneId) {
   const captured = await capturePane(paneId);
@@ -18549,8 +18714,8 @@ var NudgeTracker = class {
 };
 
 // src/mcp/team-job-convergence.ts
-var import_fs6 = require("fs");
-var import_path6 = require("path");
+var import_fs7 = require("fs");
+var import_path8 = require("path");
 
 // src/team/git-worktree.ts
 var import_node_fs = require("node:fs");
@@ -18558,48 +18723,48 @@ var import_node_path = require("node:path");
 var import_node_child_process = require("node:child_process");
 
 // src/team/fs-utils.ts
-var import_fs3 = require("fs");
-var import_path5 = require("path");
+var import_fs4 = require("fs");
+var import_path7 = require("path");
 function atomicWriteJson(filePath, data, mode = 384) {
-  const dir = (0, import_path5.dirname)(filePath);
-  if (!(0, import_fs3.existsSync)(dir)) (0, import_fs3.mkdirSync)(dir, { recursive: true, mode: 448 });
+  const dir = (0, import_path7.dirname)(filePath);
+  if (!(0, import_fs4.existsSync)(dir)) (0, import_fs4.mkdirSync)(dir, { recursive: true, mode: 448 });
   const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
-  (0, import_fs3.writeFileSync)(tmpPath, JSON.stringify(data, null, 2) + "\n", { encoding: "utf-8", mode });
-  (0, import_fs3.renameSync)(tmpPath, filePath);
+  (0, import_fs4.writeFileSync)(tmpPath, JSON.stringify(data, null, 2) + "\n", { encoding: "utf-8", mode });
+  (0, import_fs4.renameSync)(tmpPath, filePath);
 }
 function ensureDirWithMode(dirPath, mode = 448) {
-  if (!(0, import_fs3.existsSync)(dirPath)) (0, import_fs3.mkdirSync)(dirPath, { recursive: true, mode });
+  if (!(0, import_fs4.existsSync)(dirPath)) (0, import_fs4.mkdirSync)(dirPath, { recursive: true, mode });
 }
 function safeRealpath(p) {
   try {
-    return (0, import_fs3.realpathSync)(p);
+    return (0, import_fs4.realpathSync)(p);
   } catch {
     const segments = [];
-    let current = (0, import_path5.resolve)(p);
-    while (!(0, import_fs3.existsSync)(current)) {
-      segments.unshift((0, import_path5.basename)(current));
-      const parent = (0, import_path5.dirname)(current);
+    let current = (0, import_path7.resolve)(p);
+    while (!(0, import_fs4.existsSync)(current)) {
+      segments.unshift((0, import_path7.basename)(current));
+      const parent = (0, import_path7.dirname)(current);
       if (parent === current) break;
       current = parent;
     }
     try {
-      return (0, import_path5.join)((0, import_fs3.realpathSync)(current), ...segments);
+      return (0, import_path7.join)((0, import_fs4.realpathSync)(current), ...segments);
     } catch {
-      return (0, import_path5.resolve)(p);
+      return (0, import_path7.resolve)(p);
     }
   }
 }
 function validateResolvedPath(resolvedPath, expectedBase) {
   const absResolved = safeRealpath(resolvedPath);
   const absBase = safeRealpath(expectedBase);
-  const rel = (0, import_path5.relative)(absBase, absResolved);
-  if (rel.startsWith("..") || (0, import_path5.resolve)(absBase, rel) !== absResolved) {
+  const rel = (0, import_path7.relative)(absBase, absResolved);
+  if (rel.startsWith("..") || (0, import_path7.resolve)(absBase, rel) !== absResolved) {
     throw new Error(`Path traversal detected: "${resolvedPath}" escapes base "${expectedBase}"`);
   }
 }
 
 // src/lib/file-lock.ts
-var import_fs5 = require("fs");
+var import_fs6 = require("fs");
 var path3 = __toESM(require("path"), 1);
 
 // src/lib/atomic-write.ts
@@ -18623,13 +18788,13 @@ function ensureDirSync(dir) {
 
 // src/platform/index.ts
 var path2 = __toESM(require("path"), 1);
-var import_fs4 = require("fs");
+var import_fs5 = require("fs");
 
 // src/platform/process-utils.ts
-var import_child_process2 = require("child_process");
-var import_util6 = require("util");
+var import_child_process4 = require("child_process");
+var import_util7 = require("util");
 var fsPromises = __toESM(require("fs/promises"), 1);
-var execFileAsync = (0, import_util6.promisify)(import_child_process2.execFile);
+var execFileAsync2 = (0, import_util7.promisify)(import_child_process4.execFile);
 function isProcessAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
@@ -18651,11 +18816,11 @@ var DEFAULT_STALE_LOCK_MS = 3e4;
 var DEFAULT_RETRY_DELAY_MS = 50;
 function isLockStale(lockPath, staleLockMs) {
   try {
-    const stat = (0, import_fs5.statSync)(lockPath);
+    const stat = (0, import_fs6.statSync)(lockPath);
     const ageMs = Date.now() - stat.mtimeMs;
     if (ageMs < staleLockMs) return false;
     try {
-      const raw = (0, import_fs5.readFileSync)(lockPath, "utf-8");
+      const raw = (0, import_fs6.readFileSync)(lockPath, "utf-8");
       const payload = JSON.parse(raw);
       if (payload.pid && isProcessAlive(payload.pid)) return false;
     } catch {
@@ -18668,21 +18833,21 @@ function isLockStale(lockPath, staleLockMs) {
 function tryAcquireSync(lockPath, staleLockMs) {
   ensureDirSync(path3.dirname(lockPath));
   try {
-    const fd = (0, import_fs5.openSync)(
+    const fd = (0, import_fs6.openSync)(
       lockPath,
-      import_fs5.constants.O_CREAT | import_fs5.constants.O_EXCL | import_fs5.constants.O_WRONLY,
+      import_fs6.constants.O_CREAT | import_fs6.constants.O_EXCL | import_fs6.constants.O_WRONLY,
       384
     );
     try {
       const payload = JSON.stringify({ pid: process.pid, timestamp: Date.now() });
-      (0, import_fs5.writeSync)(fd, payload, null, "utf-8");
+      (0, import_fs6.writeSync)(fd, payload, null, "utf-8");
     } catch (writeErr) {
       try {
-        (0, import_fs5.closeSync)(fd);
+        (0, import_fs6.closeSync)(fd);
       } catch {
       }
       try {
-        (0, import_fs5.unlinkSync)(lockPath);
+        (0, import_fs6.unlinkSync)(lockPath);
       } catch {
       }
       throw writeErr;
@@ -18692,25 +18857,25 @@ function tryAcquireSync(lockPath, staleLockMs) {
     if (err && typeof err === "object" && "code" in err && err.code === "EEXIST") {
       if (isLockStale(lockPath, staleLockMs)) {
         try {
-          (0, import_fs5.unlinkSync)(lockPath);
+          (0, import_fs6.unlinkSync)(lockPath);
         } catch {
         }
         try {
-          const fd = (0, import_fs5.openSync)(
+          const fd = (0, import_fs6.openSync)(
             lockPath,
-            import_fs5.constants.O_CREAT | import_fs5.constants.O_EXCL | import_fs5.constants.O_WRONLY,
+            import_fs6.constants.O_CREAT | import_fs6.constants.O_EXCL | import_fs6.constants.O_WRONLY,
             384
           );
           try {
             const payload = JSON.stringify({ pid: process.pid, timestamp: Date.now() });
-            (0, import_fs5.writeSync)(fd, payload, null, "utf-8");
+            (0, import_fs6.writeSync)(fd, payload, null, "utf-8");
           } catch (writeErr) {
             try {
-              (0, import_fs5.closeSync)(fd);
+              (0, import_fs6.closeSync)(fd);
             } catch {
             }
             try {
-              (0, import_fs5.unlinkSync)(lockPath);
+              (0, import_fs6.unlinkSync)(lockPath);
             } catch {
             }
             throw writeErr;
@@ -18750,11 +18915,11 @@ function acquireFileLockSync(lockPath, opts) {
 }
 function releaseFileLockSync(handle) {
   try {
-    (0, import_fs5.closeSync)(handle.fd);
+    (0, import_fs6.closeSync)(handle.fd);
   } catch {
   }
   try {
-    (0, import_fs5.unlinkSync)(handle.path);
+    (0, import_fs6.unlinkSync)(handle.path);
   } catch {
   }
 }
@@ -18772,7 +18937,7 @@ function withFileLockSync(lockPath, fn, opts) {
 
 // src/team/git-worktree.ts
 function getWorktreePath(repoRoot, teamName, workerName) {
-  return (0, import_node_path.join)(repoRoot, ".omc", "team", sanitizeName(teamName), "worktrees", sanitizeName(workerName));
+  return (0, import_node_path.join)(getOmcRoot(repoRoot), "team", sanitizeName(teamName), "worktrees", sanitizeName(workerName));
 }
 function getBranchName(teamName, workerName) {
   return `omc-team/${sanitizeName(teamName)}/${sanitizeName(workerName)}`;
@@ -18824,13 +18989,13 @@ function isWorktreeDirtyExcept(wtPath, ignoredRootPaths = []) {
   }
 }
 function getMetadataPath(repoRoot, teamName) {
-  return (0, import_node_path.join)(repoRoot, ".omc", "state", "team", sanitizeName(teamName), "worktrees.json");
+  return (0, import_node_path.join)(getOmcRoot(repoRoot), "state", "team", sanitizeName(teamName), "worktrees.json");
 }
 function getLegacyMetadataPath(repoRoot, teamName) {
-  return (0, import_node_path.join)(repoRoot, ".omc", "state", "team-bridge", sanitizeName(teamName), "worktrees.json");
+  return (0, import_node_path.join)(getOmcRoot(repoRoot), "state", "team-bridge", sanitizeName(teamName), "worktrees.json");
 }
 function getWorkerStateDir(repoRoot, teamName, workerName) {
-  return (0, import_node_path.join)(repoRoot, ".omc", "state", "team", sanitizeName(teamName), "workers", sanitizeName(workerName));
+  return (0, import_node_path.join)(getOmcRoot(repoRoot), "state", "team", sanitizeName(teamName), "workers", sanitizeName(workerName));
 }
 function getRootAgentsBackupPath(repoRoot, teamName, workerName) {
   return (0, import_node_path.join)(getWorkerStateDir(repoRoot, teamName, workerName), "worktree-root-agents.json");
@@ -18903,7 +19068,7 @@ function readMetadata(repoRoot, teamName) {
   return readMetadataResult(repoRoot, teamName).entries;
 }
 function listRootAgentsBackupIssues(repoRoot, teamName, entries) {
-  const workersDir = (0, import_node_path.join)(repoRoot, ".omc", "state", "team", sanitizeName(teamName), "workers");
+  const workersDir = (0, import_node_path.join)(getOmcRoot(repoRoot), "state", "team", sanitizeName(teamName), "workers");
   if (!(0, import_node_fs.existsSync)(workersDir)) return [];
   const knownWorkers = new Set(entries.map((entry) => sanitizeName(entry.workerName)));
   const issues = [];
@@ -18929,7 +19094,7 @@ function listRootAgentsBackupIssues(repoRoot, teamName, entries) {
 function writeMetadata(repoRoot, teamName, entries) {
   const metaPath = getMetadataPath(repoRoot, teamName);
   validateResolvedPath(metaPath, repoRoot);
-  ensureDirWithMode((0, import_node_path.join)(repoRoot, ".omc", "state", "team", sanitizeName(teamName)));
+  ensureDirWithMode((0, import_node_path.join)(getOmcRoot(repoRoot), "state", "team", sanitizeName(teamName)));
   atomicWriteJson(metaPath, entries);
 }
 function forgetMetadataUnlocked(repoRoot, teamName, workerName) {
@@ -19046,11 +19211,11 @@ function cleanupTeamWorktrees(teamName, repoRoot) {
 
 // src/mcp/team-job-convergence.ts
 function readResultArtifact(omcJobsDir, jobId) {
-  const artifactPath = (0, import_path6.join)(omcJobsDir, `${jobId}-result.json`);
-  if (!(0, import_fs6.existsSync)(artifactPath)) return { kind: "none" };
+  const artifactPath = (0, import_path8.join)(omcJobsDir, `${jobId}-result.json`);
+  if (!(0, import_fs7.existsSync)(artifactPath)) return { kind: "none" };
   let raw;
   try {
-    raw = (0, import_fs6.readFileSync)(artifactPath, "utf-8");
+    raw = (0, import_fs7.readFileSync)(artifactPath, "utf-8");
   } catch {
     return { kind: "none" };
   }
@@ -19115,7 +19280,7 @@ function clearScopedTeamState(job) {
       message: `team state cleanup skipped (invalid teamName): ${error2 instanceof Error ? error2.message : String(error2)}`
     };
   }
-  const stateDir = (0, import_path6.join)(job.cwd, ".omc", "state", "team", job.teamName);
+  const stateDir = (0, import_path8.join)(getOmcRoot(job.cwd), "state", "team", job.teamName);
   let worktreeMessage = "worktree cleanup skipped.";
   try {
     const cleanup = cleanupTeamWorktrees(job.teamName, job.cwd);
@@ -19137,10 +19302,10 @@ function clearScopedTeamState(job) {
     };
   }
   try {
-    if (!(0, import_fs6.existsSync)(stateDir)) {
+    if (!(0, import_fs7.existsSync)(stateDir)) {
       return { ok: true, message: `${worktreeMessage} team state dir not found at ${stateDir}.` };
     }
-    (0, import_fs6.rmSync)(stateDir, { recursive: true, force: true });
+    (0, import_fs7.rmSync)(stateDir, { recursive: true, force: true });
     return { ok: true, message: `${worktreeMessage} team state dir removed at ${stateDir}.` };
   } catch (error2) {
     const message = error2 instanceof Error ? error2.message : String(error2);
@@ -19153,45 +19318,39 @@ function clearScopedTeamState(job) {
 }
 
 // src/utils/paths.ts
-var import_path8 = require("path");
-var import_fs7 = require("fs");
-var import_os2 = require("os");
-
-// src/utils/config-dir.ts
-var import_path7 = require("path");
-var import_os = require("os");
-
-// src/utils/paths.ts
+var import_path9 = require("path");
+var import_fs8 = require("fs");
+var import_os3 = require("os");
 function getStateDir() {
   if (process.platform === "win32") {
-    return process.env.LOCALAPPDATA || (0, import_path8.join)((0, import_os2.homedir)(), "AppData", "Local");
+    return process.env.LOCALAPPDATA || (0, import_path9.join)((0, import_os3.homedir)(), "AppData", "Local");
   }
-  return process.env.XDG_STATE_HOME || (0, import_path8.join)((0, import_os2.homedir)(), ".local", "state");
+  return process.env.XDG_STATE_HOME || (0, import_path9.join)((0, import_os3.homedir)(), ".local", "state");
 }
 function prefersXdgOmcDirs() {
   return process.platform !== "win32" && process.platform !== "darwin";
 }
 function getUserHomeDir() {
   if (process.platform === "win32") {
-    return process.env.USERPROFILE || process.env.HOME || (0, import_os2.homedir)();
+    return process.env.USERPROFILE || process.env.HOME || (0, import_os3.homedir)();
   }
-  return process.env.HOME || (0, import_os2.homedir)();
+  return process.env.HOME || (0, import_os3.homedir)();
 }
 function getLegacyOmcDir() {
-  return (0, import_path8.join)(getUserHomeDir(), ".omc");
+  return (0, import_path9.join)(getUserHomeDir(), ".omc");
 }
 function getGlobalOmcStateRoot() {
   const explicitRoot = process.env.OMC_HOME?.trim();
   if (explicitRoot) {
-    return (0, import_path8.join)(explicitRoot, "state");
+    return (0, import_path9.join)(explicitRoot, "state");
   }
   if (prefersXdgOmcDirs()) {
-    return (0, import_path8.join)(getStateDir(), "omc");
+    return (0, import_path9.join)(getStateDir(), "omc");
   }
-  return (0, import_path8.join)(getLegacyOmcDir(), "state");
+  return (0, import_path9.join)(getLegacyOmcDir(), "state");
 }
 function getGlobalOmcStatePath(...segments) {
-  return (0, import_path8.join)(getGlobalOmcStateRoot(), ...segments);
+  return (0, import_path9.join)(getGlobalOmcStateRoot(), ...segments);
 }
 var STALE_THRESHOLD_MS = 24 * 60 * 60 * 1e3;
 
@@ -19291,20 +19450,20 @@ function createDeprecatedCliOnlyEnvelopeWithArgs(toolName, args) {
 }
 function persistJob(jobId, job) {
   try {
-    if (!(0, import_fs8.existsSync)(OMC_JOBS_DIR)) (0, import_fs8.mkdirSync)(OMC_JOBS_DIR, { recursive: true });
-    (0, import_fs8.writeFileSync)((0, import_path9.join)(OMC_JOBS_DIR, `${jobId}.json`), JSON.stringify(job), "utf-8");
+    if (!(0, import_fs9.existsSync)(OMC_JOBS_DIR)) (0, import_fs9.mkdirSync)(OMC_JOBS_DIR, { recursive: true });
+    (0, import_fs9.writeFileSync)((0, import_path10.join)(OMC_JOBS_DIR, `${jobId}.json`), JSON.stringify(job), "utf-8");
   } catch {
   }
 }
 function loadJobFromDisk(jobId) {
   try {
-    return JSON.parse((0, import_fs8.readFileSync)((0, import_path9.join)(OMC_JOBS_DIR, `${jobId}.json`), "utf-8"));
+    return JSON.parse((0, import_fs9.readFileSync)((0, import_path10.join)(OMC_JOBS_DIR, `${jobId}.json`), "utf-8"));
   } catch {
     return void 0;
   }
 }
 async function loadPaneIds(jobId) {
-  const p = (0, import_path9.join)(OMC_JOBS_DIR, `${jobId}-panes.json`);
+  const p = (0, import_path10.join)(OMC_JOBS_DIR, `${jobId}-panes.json`);
   try {
     return JSON.parse(await (0, import_promises3.readFile)(p, "utf-8"));
   } catch {
@@ -19394,10 +19553,10 @@ async function handleStart(args) {
   const input = startSchema.parse(args);
   validateTeamName(input.teamName);
   const jobId = `omc-${Date.now().toString(36)}${(0, import_node_crypto.randomUUID)().slice(0, 8)}`;
-  const runtimeCliPath = (0, import_path9.join)(__ownDir, "runtime-cli.cjs");
+  const runtimeCliPath = (0, import_path10.join)(__ownDir, "runtime-cli.cjs");
   const job = { status: "running", startedAt: Date.now(), teamName: input.teamName, cwd: input.cwd };
   omcTeamJobs.set(jobId, job);
-  const child = (0, import_child_process3.spawn)(process.execPath, [runtimeCliPath], {
+  const child = (0, import_child_process5.spawn)(process.execPath, [runtimeCliPath], {
     env: { ...process.env, OMC_JOB_ID: jobId, OMC_JOBS_DIR },
     stdio: ["pipe", "pipe", "pipe"]
   });

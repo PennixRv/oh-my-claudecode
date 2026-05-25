@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve as resolvePath } from 'node:path';
+import { getOmcRoot } from '../lib/worktree-paths.js';
 import { TEAM_NAME_SAFE_PATTERN, WORKER_NAME_SAFE_PATTERN, TASK_ID_SAFE_PATTERN, TEAM_TASK_STATUSES, TEAM_EVENT_TYPES, TEAM_TASK_APPROVAL_STATUSES, } from './contracts.js';
 import { teamSendMessage as sendDirectMessage, teamBroadcast as broadcastMessage, teamListMailbox as listMailboxMessages, teamMarkMessageDelivered as markMessageDelivered, teamMarkMessageNotified as markMessageNotified, teamCreateTask, teamReadTask, teamListTasks, teamUpdateTask, teamClaimTask, teamTransitionTaskStatus, teamReleaseTaskClaim, teamReadConfig, teamReadManifest, teamReadWorkerStatus, teamReadWorkerHeartbeat, teamUpdateWorkerHeartbeat, teamWriteWorkerInbox, teamWriteWorkerIdentity, teamAppendEvent, teamGetSummary, teamCleanup, teamWriteShutdownRequest, teamReadShutdownAck, teamReadMonitorSnapshot, teamWriteMonitorSnapshot, teamReadTaskApproval, teamWriteTaskApproval, } from './team-ops.js';
 import { queueBroadcastMailboxMessage, queueDirectMailboxMessage } from './mcp-comm.js';
@@ -154,7 +155,7 @@ function parseTaskDelegationPlan(value) {
 function teamStateExists(teamName, candidateCwd) {
     if (!TEAM_NAME_SAFE_PATTERN.test(teamName))
         return false;
-    const teamRoot = join(candidateCwd, '.omc', 'state', 'team', teamName);
+    const teamRoot = join(getOmcRoot(candidateCwd), 'state', 'team', teamName);
     return existsSync(join(teamRoot, 'config.json')) || existsSync(join(teamRoot, 'tasks')) || existsSync(teamRoot);
 }
 function parseTeamWorkerEnv(raw) {
@@ -271,7 +272,7 @@ function stateRootToWorkingDirectory(stateRoot) {
     return dirname(dirname(absolute));
 }
 function resolveTeamWorkingDirectoryFromMetadata(teamName, candidateCwd, workerContext) {
-    const teamRoot = join(candidateCwd, '.omc', 'state', 'team', teamName);
+    const teamRoot = join(getOmcRoot(candidateCwd), 'state', 'team', teamName);
     if (!existsSync(teamRoot))
         return null;
     if (workerContext?.teamName === teamName) {

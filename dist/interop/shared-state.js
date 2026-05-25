@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'fs
 import { z } from 'zod';
 import { atomicWriteJsonSync } from '../lib/atomic-write.js';
 import { withFileLockSync } from '../lib/file-lock.js';
+import { getOmcRoot } from '../lib/worktree-paths.js';
 import { createArtifactHandoff, writeTextArtifact, } from '../shared/artifact-descriptor.js';
 const INTEROP_ARTIFACT_THRESHOLD_BYTES = 2048;
 // Zod schemas for runtime validation
@@ -103,7 +104,7 @@ function unlinkArtifact(descriptor) {
  * Get the interop directory path for a worktree
  */
 export function getInteropDir(cwd) {
-    return join(cwd, '.omc', 'state', 'interop');
+    return join(getOmcRoot(cwd), 'state', 'interop');
 }
 /**
  * Initialize an interop session

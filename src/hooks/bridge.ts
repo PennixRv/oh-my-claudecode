@@ -3238,11 +3238,7 @@ export async function processHook(
 
       case "code-simplifier": {
         const directory = input.directory ?? process.cwd();
-        const stateDir = join(
-          resolveToWorktreeRoot(directory),
-          ".omc",
-          "state",
-        );
+        const stateDir = join(getOmcRoot(directory), "state");
         const { processCodeSimplifier } =
           await import("./code-simplifier/index.js");
         const result = processCodeSimplifier(directory, stateDir);

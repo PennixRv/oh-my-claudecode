@@ -12,6 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const { getClaudeConfigDir } = await import(pathToFileURL(join(__dirname, 'lib', 'config-dir.mjs')).href);
 const configDir = getClaudeConfigDir();
+const { resolveSessionStatePathsForHook, resolveOmcStateRoot } = await import(pathToFileURL(join(__dirname, '..', '..', 'scripts', 'lib', 'state-root.mjs')).href);
 
 // Import timeout-protected stdin reader (prevents hangs on Linux/Windows, see issue #240, #524)
 let readStdin;
@@ -59,11 +60,10 @@ function writeJsonFile(path, data) {
 const SESSION_ID_ALLOWLIST = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,255}$/;
 const WORKFLOW_SLOT_TOMBSTONE_TTL_MS = 24 * 60 * 60 * 1000;
 
-function isWorkflowSlotTombstonedForMode(directory, mode, sessionId) {
+async function isWorkflowSlotTombstonedForMode(directory, mode, sessionId) {
   const safeSessionId = typeof sessionId === 'string' && SESSION_ID_ALLOWLIST.test(sessionId) ? sessionId : '';
-  const ledgerPath = safeSessionId
-    ? join(directory, '.omc', 'state', 'sessions', safeSessionId, 'skill-active-state.json')
-    : join(directory, '.omc', 'state', 'skill-active-state.json');
+  const { readPath } = await resolveSessionStatePathsForHook(directory, 'skill-active', safeSessionId || undefined);
+  const ledgerPath = readPath;
   const ledger = readJsonFile(ledgerPath);
   const slot = ledger?.active_skills?.[mode];
   if (!slot || typeof slot !== 'object') return false;
@@ -73,9 +73,9 @@ function isWorkflowSlotTombstonedForMode(directory, mode, sessionId) {
   return Date.now() - completedAt < WORKFLOW_SLOT_TOMBSTONE_TTL_MS;
 }
 
-function shouldRestoreModeState(directory, mode, state, sessionId) {
+async function shouldRestoreModeState(directory, mode, state, sessionId) {
   if (!state?.active) return false;
-  if (isWorkflowSlotTombstonedForMode(directory, mode, sessionId)) return false;
+  if (await isWorkflowSlotTombstonedForMode(directory, mode, sessionId)) return false;
   return true;
 }
 
@@ -174,10 +174,11 @@ function isVertexSession() {
   return Boolean(modelId && modelId.toLowerCase().startsWith('vertex_ai/'));
 }
 
-function readRoutingForceInheritFromConfig(directory) {
+async function readRoutingForceInheritFromConfig(directory) {
+  const omcRoot = await resolveOmcStateRoot(directory);
   const configPaths = [
     join(configDir, '.omc-config.json'),
-    join(directory, '.omc', 'config.json'),
+    join(omcRoot, 'config.json'),
   ];
 
   for (const configPath of configPaths) {
@@ -188,10 +189,10 @@ function readRoutingForceInheritFromConfig(directory) {
   return false;
 }
 
-function shouldEmitModelRoutingOverride(directory) {
+async function shouldEmitModelRoutingOverride(directory) {
   if (process.env.OMC_ROUTING_FORCE_INHERIT === 'true') return true;
   if (process.env.OMC_ROUTING_FORCE_INHERIT === 'false') return false;
-  if (readRoutingForceInheritFromConfig(directory)) return true;
+  if (await readRoutingForceInheritFromConfig(directory)) return true;
 
   if (isBedrockSession() || isVertexSession()) return true;
 
@@ -305,15 +306,16 @@ const WORKING_MEMORY_HEADER = '## Working Memory';
 /**
  * Get notepad path in .omc directory
  */
-function getNotepadPath(directory) {
-  return join(directory, '.omc', NOTEPAD_FILENAME);
+async function getNotepadPath(directory) {
+  const omcRoot = await resolveOmcStateRoot(directory);
+  return join(omcRoot, NOTEPAD_FILENAME);
 }
 
 /**
  * Read notepad content
  */
-function readNotepad(directory) {
-  const notepadPath = getNotepadPath(directory);
+async function readNotepad(directory) {
+  const notepadPath = await getNotepadPath(directory);
   if (!existsSync(notepadPath)) {
     return null;
   }
@@ -344,8 +346,8 @@ function extractSection(content, header) {
 /**
  * Get Priority Context section (for injection)
  */
-function getPriorityContext(directory) {
-  const content = readNotepad(directory);
+async function getPriorityContext(directory) {
+  const content = await readNotepad(directory);
   if (!content) {
     return null;
   }
@@ -355,8 +357,8 @@ function getPriorityContext(directory) {
 /**
  * Format notepad context for session injection
  */
-function formatNotepadContext(directory) {
-  const priorityContext = getPriorityContext(directory);
+async function formatNotepadContext(directory) {
+  const priorityContext = await getPriorityContext(directory);
   if (!priorityContext) {
     return null;
   }
@@ -370,6 +372,29 @@ ${priorityContext}
 }
 
 const STALE_STATE_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+/**
+ * Validate that a candidate cwd is a real OMC workspace anchor.
+ * Returns the candidate unchanged if it is non-empty AND contains a
+ * `.omc-workspace` marker OR a `.git` directory.
+ * Otherwise emits a one-line warning to stderr and returns null,
+ * signalling the caller to skip all state mutations.
+ */
+function validateCwd(candidate) {
+  if (!candidate || typeof candidate !== 'string') {
+    process.stderr.write(
+      `[OMC] session-start: refusing to use cwd '${candidate}' as workspace anchor (no .omc-workspace or .git marker)\n`
+    );
+    return null;
+  }
+  if (existsSync(join(candidate, '.omc-workspace')) || existsSync(join(candidate, '.git'))) {
+    return candidate;
+  }
+  process.stderr.write(
+    `[OMC] session-start: refusing to use cwd '${candidate}' as workspace anchor (no .omc-workspace or .git marker)\n`
+  );
+  return null;
+}
 
 function normalizePath(p) {
   if (!p || typeof p !== 'string') return '';
@@ -395,11 +420,31 @@ function isFreshActiveState(state) {
   return (Date.now() - recencyMs) <= STALE_STATE_THRESHOLD_MS;
 }
 
+function isOwnerProcessAlive(state) {
+  const pid = state && typeof state.owner_pid === 'number' ? state.owner_pid : null;
+  // Unknown PID → backwards-compat: assume alive (current behavior).
+  if (pid === null || pid <= 0) return true;
+  if (pid === process.pid) return true;
+  try {
+    // Signal 0 probes liveness without affecting the process.
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // ESRCH = no such process → owner is dead, safe to reclaim.
+    if (err && err.code === 'ESRCH') return false;
+    // EPERM = owned by a different user → can't tell, assume alive.
+    return true;
+  }
+}
+
 function hasConflictingUltraworkRestore(state, sessionId, directory, source) {
   if (!sessionId || !isFreshActiveState(state)) return false;
   if (typeof state.session_id !== 'string' || !state.session_id || state.session_id === sessionId) {
     return false;
   }
+  // Recorded owner PID is dead → the state file is orphaned, not a real
+  // parallel-session conflict. Allow the current session to reclaim it.
+  if (!isOwnerProcessAlive(state)) return false;
 
   if (source === 'global') {
     if (typeof state.project_path !== 'string' || !state.project_path) {
@@ -411,8 +456,8 @@ function hasConflictingUltraworkRestore(state, sessionId, directory, source) {
   return true;
 }
 
-function getUltraworkRestoreCandidate(directory, sessionId) {
-  const localPath = join(directory, '.omc', 'state', 'ultrawork-state.json');
+async function getUltraworkRestoreCandidate(directory, sessionId) {
+  const { readPath: localPath } = await resolveSessionStatePathsForHook(directory, 'ultrawork', sessionId || undefined);
   const globalPath = join(homedir(), '.omc', 'state', 'ultrawork-state.json');
 
   const localState = readJsonFile(localPath);
@@ -461,7 +506,12 @@ async function main() {
     let data = {};
     try { data = JSON.parse(input); } catch {}
 
-    const directory = data.cwd || data.directory || process.cwd();
+    const rawDirectory = data.cwd || data.directory || process.cwd();
+    const directory = validateCwd(rawDirectory);
+    if (directory === null) {
+      console.log(JSON.stringify({ continue: true }));
+      return;
+    }
     const sessionId = data.sessionId || data.session_id || data.sessionid || '';
     const messages = [];
 
@@ -475,6 +525,25 @@ async function main() {
         currentVersion = pkg.version;
         break;
       }
+    }
+
+    // Template-version drift check: warn once per session if installed templates differ from plugin
+    if (currentVersion) {
+      try {
+        const omcRoot = await resolveOmcStateRoot(directory);
+        const stampPath = join(omcRoot, 'template-version.json');
+        const driftMarkerPath = join(omcRoot, 'state', `drift-warned-${sessionId || 'nosession'}.json`);
+        if (existsSync(stampPath) && !existsSync(driftMarkerPath)) {
+          const stamp = readJsonFile(stampPath);
+          if (stamp?.version && stamp.version !== currentVersion) {
+            process.stderr.write(
+              `[omc] template version drift: installed=${stamp.version}, plugin=${currentVersion} — run /oh-my-claudecode:omc-setup to refresh\n`
+            );
+            mkdirSync(join(driftMarkerPath, '..'), { recursive: true });
+            writeFileSync(driftMarkerPath, JSON.stringify({ warnedAt: new Date().toISOString() }));
+          }
+        }
+      } catch { /* non-fatal */ }
     }
 
     const updateInfo = currentVersion ? await checkForUpdates(currentVersion) : null;
@@ -518,12 +587,12 @@ To update, run: omc update
       }
     }
 
-    if (shouldEmitModelRoutingOverride(directory)) {
+    if (await shouldEmitModelRoutingOverride(directory)) {
       messages.push(MODEL_ROUTING_OVERRIDE_MESSAGE);
     }
 
     // Check for ultrawork state - warn on conflicting same-path session, otherwise restore.
-    const ultraworkCandidate = getUltraworkRestoreCandidate(directory, sessionId);
+    const ultraworkCandidate = await getUltraworkRestoreCandidate(directory, sessionId);
     if (ultraworkCandidate.collision) {
       messages.push(
         formatUltraworkCollisionWarning(
@@ -531,7 +600,7 @@ To update, run: omc update
           ultraworkCandidate.collision.state,
         ),
       );
-    } else if (shouldRestoreModeState(directory, 'ultrawork', ultraworkCandidate.restore, sessionId)) {
+    } else if (await shouldRestoreModeState(directory, 'ultrawork', ultraworkCandidate.restore, sessionId)) {
       const ultraworkState = ultraworkCandidate.restore;
       messages.push(`<session-restore>
 
@@ -554,8 +623,9 @@ Continue working in ultrawork mode until all tasks are complete.
     // [$CLAUDE_CONFIG_DIR|~/.claude]/todos/ directory.
     // That directory accumulates todo files from ALL past sessions across all
     // projects, causing phantom task counts in fresh sessions (see issue #354).
+    const omcRootForTodos = await resolveOmcStateRoot(directory);
     const localTodoPaths = [
-      join(directory, '.omc', 'todos.json'),
+      join(omcRootForTodos, 'todos.json'),
       join(directory, '.claude', 'todos.json')
     ];
     let incompleteCount = 0;
@@ -584,7 +654,7 @@ Please continue working on these tasks.
     }
 
     // Check for notepad Priority Context (ALWAYS loaded on session start)
-    const notepadContext = formatNotepadContext(directory);
+    const notepadContext = await formatNotepadContext(directory);
     if (notepadContext) {
       messages.push(`<session-restore>
 

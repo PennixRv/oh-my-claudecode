@@ -14,6 +14,7 @@ import { basename, join, dirname, resolve } from 'path';
 import { homedir, tmpdir } from 'os';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { getClaudeConfigDir } from './lib/config-dir.mjs';
+import { resolveOmcStateRoot } from './lib/state-root.mjs';
 import { readStdin } from './lib/stdin.mjs';
 
 const AGENT_OUTPUT_ANALYSIS_LIMIT = parseInt(process.env.OMC_AGENT_OUTPUT_ANALYSIS_LIMIT || '12000', 10);
@@ -30,6 +31,66 @@ function getQuietLevel() {
   const parsed = Number.parseInt(process.env.OMC_QUIET || '0', 10);
   if (Number.isNaN(parsed)) return 0;
   return Math.max(0, parsed);
+}
+
+/**
+ * Resolve the .omc root directory for a given starting directory.
+ *
+ * Resolution order (mirrors src/lib/worktree-paths.ts getOmcRoot):
+ *   1) OMC_STATE_DIR env — log a warning and fall through (full project-id
+ *      derivation lives in the TS layer; .mjs scripts use resolveOmcStateRoot
+ *      for the async TS-backed path when they need OMC_STATE_DIR honoring).
+ *   2) Walk up from startDir looking for a .omc-workspace marker file.
+ *      The first directory containing that file is the workspace anchor.
+ *   3) git rev-parse --show-toplevel from startDir.
+ *   4) Fallback to startDir itself.
+ *
+ * @param {string} startDir - Directory to resolve from (usually cwd from hook payload)
+ * @returns {string} Absolute path to the .omc root directory
+ */
+function resolveOmcRoot(startDir) {
+  const dir = startDir || process.cwd();
+
+  // 1) OMC_STATE_DIR: full project-id derivation is TS-only; warn and fall through.
+  if (process.env.OMC_STATE_DIR) {
+    process.stderr.write(
+      '[omc] OMC_STATE_DIR is set; resolveOmcRoot() falling through to workspace-marker ' +
+      'resolution. Use resolveOmcStateRoot() for full OMC_STATE_DIR support.\n'
+    );
+  }
+
+  // 2) Walk up looking for .omc-workspace marker
+  try {
+    let cursor = resolve(dir);
+    const home = (() => { try { return resolve(homedir()); } catch { return null; } })();
+    while (true) {
+      if (existsSync(join(cursor, '.omc-workspace'))) {
+        return join(cursor, '.omc');
+      }
+      const parent = dirname(cursor);
+      if (parent === cursor) break;
+      if (home && cursor === home) break;
+      cursor = parent;
+    }
+  } catch {
+    // walk failed — continue to git fallback
+  }
+
+  // 3) git rev-parse --show-toplevel
+  try {
+    const top = execSync('git rev-parse --show-toplevel', {
+      cwd: dir,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+    }).trim();
+    if (top) return join(top, '.omc');
+  } catch {
+    // not in a git repo — fall through
+  }
+
+  // 4) Fallback to startDir
+  return join(dir, '.omc');
 }
 
 function clampPercent(percent, fallback) {
@@ -538,7 +599,7 @@ function isConsensusPlanningSkillInvocation(skillName, toolInput) {
 }
 
 function getSkillActiveStatePaths(directory, sessionId) {
-  const stateDir = join(directory, '.omc', 'state');
+  const stateDir = join(resolveOmcRoot(directory), 'state');
   const safeSessionId = sessionId && SESSION_ID_ALLOWLIST.test(sessionId) ? sessionId : '';
   return [
     safeSessionId ? join(stateDir, 'sessions', safeSessionId, 'skill-active-state.json') : null,
@@ -570,7 +631,7 @@ function clearSkillActiveState(directory, sessionId) {
 }
 
 function getRalplanStatePaths(directory, sessionId) {
-  const stateDir = join(directory, '.omc', 'state');
+  const stateDir = join(resolveOmcRoot(directory), 'state');
   const safeSessionId = sessionId && SESSION_ID_ALLOWLIST.test(sessionId) ? sessionId : '';
   return [
     safeSessionId ? join(stateDir, 'sessions', safeSessionId, 'ralplan-state.json') : null,
@@ -858,11 +919,22 @@ function hasStructuredWriteFailure(rawResponse) {
   return hasExplicitStructuredFailureIndicator(rawResponse);
 }
 
-// Get agent completion summary from tracking state
-function getAgentCompletionSummary(directory, quietLevel = QUIET_LEVEL) {
-  const trackingFile = join(directory, '.omc', 'state', 'subagent-tracking.json');
-  try {
-    if (existsSync(trackingFile)) {
+// Get agent completion summary from tracking state.
+// Checks session-scoped path first (Wave A migration), falls back to legacy path.
+// sessionId is extracted from the hook payload; when absent only the legacy path is tried.
+function getAgentCompletionSummary(directory, quietLevel = QUIET_LEVEL, sessionId = '') {
+  const stateDir = join(resolveOmcRoot(directory), 'state');
+  const safeSessionId = sessionId && SESSION_ID_ALLOWLIST.test(sessionId) ? sessionId : '';
+
+  // Build candidate paths: session-scoped first, then legacy fallback
+  const candidates = [
+    safeSessionId ? join(stateDir, 'sessions', safeSessionId, 'subagent-tracking-state.json') : null,
+    join(stateDir, 'subagent-tracking.json'),
+  ].filter(Boolean);
+
+  for (const trackingFile of candidates) {
+    try {
+      if (!existsSync(trackingFile)) continue;
       const data = JSON.parse(readFileSync(trackingFile, 'utf-8'));
       const agents = data.agents || [];
       const running = agents.filter(a => a.status === 'running');
@@ -879,8 +951,8 @@ function getAgentCompletionSummary(directory, quietLevel = QUIET_LEVEL) {
       if (failed > 0) parts.push(`Failed: ${failed}`);
 
       return parts.join(' | ');
-    }
-  } catch {}
+    } catch {}
+  }
   return '';
 }
 
@@ -911,7 +983,7 @@ function generateMessage(toolName, toolOutput, sessionId, toolCount, directory, 
     case 'Task':
     case 'TaskCreate':
     case 'TaskUpdate': {
-      const agentSummary = getAgentCompletionSummary(directory, QUIET_LEVEL);
+      const agentSummary = getAgentCompletionSummary(directory, QUIET_LEVEL, sessionId);
       if (detectWriteFailure(toolOutput)) {
         message = 'Task delegation failed. Verify agent name and parameters.';
       } else if (QUIET_LEVEL < 2 && detectBackgroundOperation(toolOutput)) {

@@ -371,6 +371,29 @@ const SESSION_END_MODE_STATE_FILES = [
 import { MODEL_ROUTING_OVERRIDE_MESSAGE } from './lib/model-routing-override-message.mjs';
 export { MODEL_ROUTING_OVERRIDE_MESSAGE };
 
+/**
+ * Validate that a candidate cwd is a real OMC workspace anchor.
+ * Returns the candidate unchanged if it is non-empty AND contains a
+ * `.omc-workspace` marker OR a `.git` directory.
+ * Otherwise emits a one-line warning to stderr and returns null,
+ * signalling the caller to skip all state mutations.
+ */
+function validateCwd(candidate) {
+  if (!candidate || typeof candidate !== 'string') {
+    process.stderr.write(
+      `[OMC] session-start: refusing to use cwd '${candidate}' as workspace anchor (no .omc-workspace or .git marker)\n`
+    );
+    return null;
+  }
+  if (existsSync(join(candidate, '.omc-workspace')) || existsSync(join(candidate, '.git'))) {
+    return candidate;
+  }
+  process.stderr.write(
+    `[OMC] session-start: refusing to use cwd '${candidate}' as workspace anchor (no .omc-workspace or .git marker)\n`
+  );
+  return null;
+}
+
 function isTruthyProviderFlag(value) {
   return value === '1' || value === 'true';
 }
@@ -711,10 +734,27 @@ async function main() {
     let data = {};
     try { data = JSON.parse(input); } catch {}
 
-    const directory = data.cwd || data.directory || process.cwd();
+    const rawDirectory = data.cwd || data.directory || process.cwd();
+    const directory = validateCwd(rawDirectory);
+    if (directory === null) {
+      console.log(JSON.stringify({ continue: true }));
+      return;
+    }
     const sessionId = data.session_id || data.sessionId || '';
     const omcRoot = await resolveOmcStateRoot(directory);
     const messages = [];
+
+    // Fire sibling-retrofit warning once per session (lifted off getOmcRoot hot path)
+    try {
+      const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+      if (pluginRoot) {
+        const { findWorkspaceRoot, warnSiblingRetrofit } = await import(
+          pathToFileURL(join(pluginRoot, 'dist', 'lib', 'worktree-paths.js')).href
+        );
+        const anchor = findWorkspaceRoot(directory);
+        if (anchor) warnSiblingRetrofit(anchor, sessionId || undefined);
+      }
+    } catch { /* non-fatal — dist unavailable or no workspace anchor */ }
     const projectMemoryModules = await loadProjectMemoryModules();
 
     writeSessionStartedMarker(omcRoot, directory, sessionId);

@@ -8,6 +8,7 @@
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { atomicWriteJson, ensureDirWithMode, validateResolvedPath } from './fs-utils.js';
+import { getOmcRoot } from '../lib/worktree-paths.js';
 const DEFAULT_POLICY = {
     maxRestarts: 3,
     backoffBaseMs: 5000,
@@ -15,7 +16,7 @@ const DEFAULT_POLICY = {
     backoffMultiplier: 2,
 };
 function getRestartStatePath(workingDirectory, teamName, workerName) {
-    return join(workingDirectory, '.omc', 'state', 'team-bridge', teamName, `${workerName}.restart.json`);
+    return join(getOmcRoot(workingDirectory), 'state', 'team-bridge', teamName, `${workerName}.restart.json`);
 }
 /**
  * Read the current restart state for a worker.
@@ -56,7 +57,7 @@ export function shouldRestart(workingDirectory, teamName, workerName, policy = D
 export function recordRestart(workingDirectory, teamName, workerName, policy = DEFAULT_POLICY) {
     const statePath = getRestartStatePath(workingDirectory, teamName, workerName);
     validateResolvedPath(statePath, workingDirectory);
-    const dir = join(workingDirectory, '.omc', 'state', 'team-bridge', teamName);
+    const dir = join(getOmcRoot(workingDirectory), 'state', 'team-bridge', teamName);
     ensureDirWithMode(dir);
     const existing = readRestartState(workingDirectory, teamName, workerName);
     const newState = {

@@ -10,6 +10,7 @@
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { atomicWriteJson, ensureDirWithMode, validateResolvedPath } from './fs-utils.js';
+import { getOmcRoot } from '../lib/worktree-paths.js';
 import type { BridgeConfig, McpWorkerMember } from './types.js';
 
 export interface RestartPolicy {
@@ -34,7 +35,7 @@ const DEFAULT_POLICY: RestartPolicy = {
 };
 
 function getRestartStatePath(workingDirectory: string, teamName: string, workerName: string): string {
-  return join(workingDirectory, '.omc', 'state', 'team-bridge', teamName, `${workerName}.restart.json`);
+  return join(getOmcRoot(workingDirectory), 'state', 'team-bridge', teamName, `${workerName}.restart.json`);
 }
 
 /**
@@ -98,7 +99,7 @@ export function recordRestart(
   const statePath = getRestartStatePath(workingDirectory, teamName, workerName);
   validateResolvedPath(statePath, workingDirectory);
 
-  const dir = join(workingDirectory, '.omc', 'state', 'team-bridge', teamName);
+  const dir = join(getOmcRoot(workingDirectory), 'state', 'team-bridge', teamName);
   ensureDirWithMode(dir);
 
   const existing = readRestartState(workingDirectory, teamName, workerName);

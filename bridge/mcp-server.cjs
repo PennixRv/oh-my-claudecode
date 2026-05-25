@@ -3119,9 +3119,6 @@ var require_utils = __commonJS({
     "use strict";
     var isUUID = RegExp.prototype.test.bind(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu);
     var isIPv4 = RegExp.prototype.test.bind(/^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)$/u);
-    var isHexPair = RegExp.prototype.test.bind(/^[\da-f]{2}$/iu);
-    var isUnreserved = RegExp.prototype.test.bind(/^[\da-z\-._~]$/iu);
-    var isPathCharacter = RegExp.prototype.test.bind(/^[\da-z\-._~!$&'()*+,;=:@/]$/iu);
     function stringArrayToHexStripped(input) {
       let acc = "";
       let code = 0;
@@ -3314,77 +3311,27 @@ var require_utils = __commonJS({
       }
       return output.join("");
     }
-    var HOST_DELIMS = { "@": "%40", "/": "%2F", "?": "%3F", "#": "%23", ":": "%3A" };
-    var HOST_DELIM_RE = /[@/?#:]/g;
-    var HOST_DELIM_NO_COLON_RE = /[@/?#]/g;
-    function reescapeHostDelimiters(host, isIP) {
-      const re = isIP ? HOST_DELIM_NO_COLON_RE : HOST_DELIM_RE;
-      re.lastIndex = 0;
-      return host.replace(re, (ch) => HOST_DELIMS[ch]);
-    }
-    function normalizePercentEncoding(input, decodeUnreserved = false) {
-      if (input.indexOf("%") === -1) {
-        return input;
+    function normalizeComponentEncoding(component, esc2) {
+      const func = esc2 !== true ? escape : unescape;
+      if (component.scheme !== void 0) {
+        component.scheme = func(component.scheme);
       }
-      let output = "";
-      for (let i = 0; i < input.length; i++) {
-        if (input[i] === "%" && i + 2 < input.length) {
-          const hex = input.slice(i + 1, i + 3);
-          if (isHexPair(hex)) {
-            const normalizedHex = hex.toUpperCase();
-            const decoded = String.fromCharCode(parseInt(normalizedHex, 16));
-            if (decodeUnreserved && isUnreserved(decoded)) {
-              output += decoded;
-            } else {
-              output += "%" + normalizedHex;
-            }
-            i += 2;
-            continue;
-          }
-        }
-        output += input[i];
+      if (component.userinfo !== void 0) {
+        component.userinfo = func(component.userinfo);
       }
-      return output;
-    }
-    function normalizePathEncoding(input) {
-      let output = "";
-      for (let i = 0; i < input.length; i++) {
-        if (input[i] === "%" && i + 2 < input.length) {
-          const hex = input.slice(i + 1, i + 3);
-          if (isHexPair(hex)) {
-            const normalizedHex = hex.toUpperCase();
-            const decoded = String.fromCharCode(parseInt(normalizedHex, 16));
-            if (decoded !== "." && isUnreserved(decoded)) {
-              output += decoded;
-            } else {
-              output += "%" + normalizedHex;
-            }
-            i += 2;
-            continue;
-          }
-        }
-        if (isPathCharacter(input[i])) {
-          output += input[i];
-        } else {
-          output += escape(input[i]);
-        }
+      if (component.host !== void 0) {
+        component.host = func(component.host);
       }
-      return output;
-    }
-    function escapePreservingEscapes(input) {
-      let output = "";
-      for (let i = 0; i < input.length; i++) {
-        if (input[i] === "%" && i + 2 < input.length) {
-          const hex = input.slice(i + 1, i + 3);
-          if (isHexPair(hex)) {
-            output += "%" + hex.toUpperCase();
-            i += 2;
-            continue;
-          }
-        }
-        output += escape(input[i]);
+      if (component.path !== void 0) {
+        component.path = func(component.path);
       }
-      return output;
+      if (component.query !== void 0) {
+        component.query = func(component.query);
+      }
+      if (component.fragment !== void 0) {
+        component.fragment = func(component.fragment);
+      }
+      return component;
     }
     function recomposeAuthority(component) {
       const uriTokens = [];
@@ -3399,7 +3346,7 @@ var require_utils = __commonJS({
           if (ipV6res.isIPV6 === true) {
             host = `[${ipV6res.escapedHost}]`;
           } else {
-            host = reescapeHostDelimiters(host, false);
+            host = component.host;
           }
         }
         uriTokens.push(host);
@@ -3413,10 +3360,7 @@ var require_utils = __commonJS({
     module2.exports = {
       nonSimpleDomain,
       recomposeAuthority,
-      reescapeHostDelimiters,
-      normalizePercentEncoding,
-      normalizePathEncoding,
-      escapePreservingEscapes,
+      normalizeComponentEncoding,
       removeDotSegments,
       isIPv4,
       isUUID,
@@ -3640,12 +3584,12 @@ var require_schemes = __commonJS({
 var require_fast_uri = __commonJS({
   "node_modules/fast-uri/index.js"(exports2, module2) {
     "use strict";
-    var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizePercentEncoding, normalizePathEncoding, escapePreservingEscapes, reescapeHostDelimiters, isIPv4, nonSimpleDomain } = require_utils();
+    var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizeComponentEncoding, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
     function normalize8(uri, options) {
       if (typeof uri === "string") {
         uri = /** @type {T} */
-        normalizeString(uri, options);
+        serialize(parse7(uri, options), options);
       } else if (typeof uri === "object") {
         uri = /** @type {T} */
         parse7(serialize(uri, options), options);
@@ -3712,9 +3656,19 @@ var require_fast_uri = __commonJS({
       return target;
     }
     function equal(uriA, uriB, options) {
-      const normalizedA = normalizeComparableURI(uriA, options);
-      const normalizedB = normalizeComparableURI(uriB, options);
-      return normalizedA !== void 0 && normalizedB !== void 0 && normalizedA.toLowerCase() === normalizedB.toLowerCase();
+      if (typeof uriA === "string") {
+        uriA = unescape(uriA);
+        uriA = serialize(normalizeComponentEncoding(parse7(uriA, options), true), { ...options, skipEscape: true });
+      } else if (typeof uriA === "object") {
+        uriA = serialize(normalizeComponentEncoding(uriA, true), { ...options, skipEscape: true });
+      }
+      if (typeof uriB === "string") {
+        uriB = unescape(uriB);
+        uriB = serialize(normalizeComponentEncoding(parse7(uriB, options), true), { ...options, skipEscape: true });
+      } else if (typeof uriB === "object") {
+        uriB = serialize(normalizeComponentEncoding(uriB, true), { ...options, skipEscape: true });
+      }
+      return uriA.toLowerCase() === uriB.toLowerCase();
     }
     function serialize(cmpts, opts) {
       const component = {
@@ -3739,12 +3693,12 @@ var require_fast_uri = __commonJS({
       if (schemeHandler && schemeHandler.serialize) schemeHandler.serialize(component, options);
       if (component.path !== void 0) {
         if (!options.skipEscape) {
-          component.path = escapePreservingEscapes(component.path);
+          component.path = escape(component.path);
           if (component.scheme !== void 0) {
             component.path = component.path.split("%3A").join(":");
           }
         } else {
-          component.path = normalizePercentEncoding(component.path);
+          component.path = unescape(component.path);
         }
       }
       if (options.reference !== "suffix" && component.scheme) {
@@ -3779,16 +3733,7 @@ var require_fast_uri = __commonJS({
       return uriTokens.join("");
     }
     var URI_PARSE = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u;
-    function getParseError(parsed, matches) {
-      if (matches[2] !== void 0 && parsed.path && parsed.path[0] !== "/") {
-        return 'URI path must start with "/" when authority is present.';
-      }
-      if (typeof parsed.port === "number" && (parsed.port < 0 || parsed.port > 65535)) {
-        return "URI port is malformed.";
-      }
-      return void 0;
-    }
-    function parseWithStatus(uri, opts) {
+    function parse7(uri, opts) {
       const options = Object.assign({}, opts);
       const parsed = {
         scheme: void 0,
@@ -3799,7 +3744,6 @@ var require_fast_uri = __commonJS({
         query: void 0,
         fragment: void 0
       };
-      let malformedAuthorityOrPort = false;
       let isIP = false;
       if (options.reference === "suffix") {
         if (options.scheme) {
@@ -3819,11 +3763,6 @@ var require_fast_uri = __commonJS({
         parsed.fragment = matches[8];
         if (isNaN(parsed.port)) {
           parsed.port = matches[5];
-        }
-        const parseError = getParseError(parsed, matches);
-        if (parseError !== void 0) {
-          parsed.error = parsed.error || parseError;
-          malformedAuthorityOrPort = true;
         }
         if (parsed.host) {
           const ipv4result = isIPv4(parsed.host);
@@ -3863,18 +3802,14 @@ var require_fast_uri = __commonJS({
               parsed.scheme = unescape(parsed.scheme);
             }
             if (parsed.host !== void 0) {
-              parsed.host = reescapeHostDelimiters(unescape(parsed.host), isIP);
+              parsed.host = unescape(parsed.host);
             }
           }
           if (parsed.path) {
-            parsed.path = normalizePathEncoding(parsed.path);
+            parsed.path = escape(unescape(parsed.path));
           }
           if (parsed.fragment) {
-            try {
-              parsed.fragment = encodeURI(decodeURIComponent(parsed.fragment));
-            } catch {
-              parsed.error = parsed.error || "URI malformed";
-            }
+            parsed.fragment = encodeURI(decodeURIComponent(parsed.fragment));
           }
         }
         if (schemeHandler && schemeHandler.parse) {
@@ -3883,29 +3818,7 @@ var require_fast_uri = __commonJS({
       } else {
         parsed.error = parsed.error || "URI can not be parsed.";
       }
-      return { parsed, malformedAuthorityOrPort };
-    }
-    function parse7(uri, opts) {
-      return parseWithStatus(uri, opts).parsed;
-    }
-    function normalizeString(uri, opts) {
-      return normalizeStringWithStatus(uri, opts).normalized;
-    }
-    function normalizeStringWithStatus(uri, opts) {
-      const { parsed, malformedAuthorityOrPort } = parseWithStatus(uri, opts);
-      return {
-        normalized: malformedAuthorityOrPort ? uri : serialize(parsed, opts),
-        malformedAuthorityOrPort
-      };
-    }
-    function normalizeComparableURI(uri, opts) {
-      if (typeof uri === "string") {
-        const { normalized, malformedAuthorityOrPort } = normalizeStringWithStatus(uri, opts);
-        return malformedAuthorityOrPort ? void 0 : normalized;
-      }
-      if (typeof uri === "object") {
-        return serialize(uri, opts);
-      }
+      return parsed;
     }
     var fastUri = {
       SCHEMES,
@@ -20944,6 +20857,7 @@ var import_child_process8 = require("child_process");
 var import_fs10 = require("fs");
 var import_os3 = require("os");
 var import_path11 = require("path");
+var WORKSPACE_MARKER = ".omc-workspace";
 var OmcPaths = {
   ROOT: ".omc",
   STATE: ".omc/state",
@@ -20963,6 +20877,61 @@ var OmcPaths = {
 };
 var MAX_WORKTREE_CACHE_SIZE = 8;
 var worktreeCacheMap = /* @__PURE__ */ new Map();
+var workspaceCacheMap = /* @__PURE__ */ new Map();
+function findWorkspaceRoot(startDir) {
+  if (process.env.OMC_DISABLE_MULTIREPO === "1") return null;
+  const effectiveStart = startDir || process.cwd();
+  let current;
+  try {
+    current = (0, import_path11.resolve)(effectiveStart);
+  } catch {
+    return null;
+  }
+  if (workspaceCacheMap.has(current)) {
+    const cached2 = workspaceCacheMap.get(current) ?? null;
+    workspaceCacheMap.delete(current);
+    workspaceCacheMap.set(current, cached2);
+    return cached2;
+  }
+  const home = (() => {
+    try {
+      return (0, import_path11.resolve)((0, import_os3.homedir)());
+    } catch {
+      return null;
+    }
+  })();
+  let cursor = current;
+  let result = null;
+  while (true) {
+    if ((0, import_fs10.existsSync)((0, import_path11.join)(cursor, WORKSPACE_MARKER))) {
+      result = cursor;
+      break;
+    }
+    const parent = (0, import_path11.dirname)(cursor);
+    if (parent === cursor) break;
+    if (home && cursor === home) break;
+    cursor = parent;
+  }
+  if (workspaceCacheMap.size >= MAX_WORKTREE_CACHE_SIZE) {
+    const oldest = workspaceCacheMap.keys().next().value;
+    if (oldest !== void 0) workspaceCacheMap.delete(oldest);
+  }
+  workspaceCacheMap.set(current, result);
+  return result;
+}
+function readWorkspaceMarkerConfig(workspaceRoot) {
+  try {
+    const raw = (0, import_fs10.readFileSync)((0, import_path11.join)(workspaceRoot, WORKSPACE_MARKER), "utf-8").trim();
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
 function getWorktreeRoot(cwd) {
   const effectiveCwd = cwd || process.cwd();
   if (worktreeCacheMap.has(effectiveCwd)) {
@@ -21001,6 +20970,18 @@ function validatePath(inputPath) {
 var dualDirWarnings = /* @__PURE__ */ new Set();
 function getProjectIdentifier(worktreeRoot) {
   const root = worktreeRoot || getWorktreeRoot() || process.cwd();
+  const workspaceRoot = findWorkspaceRoot(root);
+  if (workspaceRoot) {
+    const cfg = readWorkspaceMarkerConfig(workspaceRoot);
+    if (cfg.id && typeof cfg.id === "string" && cfg.id.trim()) {
+      const safeId = cfg.id.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+      const hash3 = (0, import_crypto.createHash)("sha256").update(safeId).digest("hex").slice(0, 16);
+      return `${safeId}-${hash3}`;
+    }
+    const hash2 = (0, import_crypto.createHash)("sha256").update(workspaceRoot).digest("hex").slice(0, 16);
+    const dirName2 = (0, import_path11.basename)(workspaceRoot).replace(/[^a-zA-Z0-9_-]/g, "_");
+    return `${dirName2}-${hash2}`;
+  }
   let source;
   try {
     const remoteUrl = (0, import_child_process8.execSync)("git remote get-url origin", {
@@ -21049,6 +21030,10 @@ function getOmcRoot(worktreeRoot) {
       );
     }
     return centralizedPath;
+  }
+  const workspaceAnchor = findWorkspaceRoot(worktreeRoot);
+  if (workspaceAnchor) {
+    return (0, import_path11.join)(workspaceAnchor, OmcPaths.ROOT);
   }
   const root = worktreeRoot || getWorktreeRoot() || process.cwd();
   return (0, import_path11.join)(root, OmcPaths.ROOT);
@@ -22620,6 +22605,25 @@ var pythonReplTool = {
 var import_fs14 = require("fs");
 var import_path15 = require("path");
 
+// src/lib/session-id.ts
+function readEnv() {
+  const value = process.env.OMC_SESSION_ID;
+  return value && value.trim() ? value.trim() : void 0;
+}
+function readPayload(payload) {
+  if (!payload || typeof payload !== "object") return void 0;
+  const value = payload.session_id;
+  return typeof value === "string" && value.trim() ? value.trim() : void 0;
+}
+function resolveSessionId(input) {
+  const env = readEnv();
+  const payload = readPayload(input.hookPayload);
+  if (input.context === "cli") {
+    return env ?? payload;
+  }
+  return payload ?? env;
+}
+
 // src/lib/payload-limits.ts
 var DEFAULT_PAYLOAD_LIMITS = {
   maxPayloadBytes: 1048576,
@@ -23152,7 +23156,7 @@ function getLegacyStateFileCandidates(mode, root) {
   return [...new Set(candidates)];
 }
 function getWorkingDirectoryLocalOmcRoot(root) {
-  return (0, import_path15.join)(root, ".omc");
+  return (0, import_path15.join)(root, OmcPaths.ROOT);
 }
 function shouldCheckWorkingDirectoryLocalState(root) {
   return getWorkingDirectoryLocalOmcRoot(root) !== getOmcRoot(root);
@@ -23923,17 +23927,20 @@ var stateClearTool = {
 };
 var stateListActiveTool = {
   name: "state_list_active",
-  description: "List all currently active modes. Returns which modes have active state files.",
+  description: "List all currently active modes. By default, scopes to the current session (OMC_SESSION_ID). Pass all:true to list active modes across all sessions.",
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   schema: {
     workingDirectory: external_exports.string().optional().describe("Working directory (defaults to cwd)"),
-    session_id: external_exports.string().optional().describe("Session ID for session-scoped state isolation. When provided, the tool operates only within that session. When omitted, the tool aggregates legacy state plus all session-scoped state (may include other sessions).")
+    session_id: external_exports.string().optional().describe("Explicit session ID to scope the listing. Overrides OMC_SESSION_ID when provided."),
+    all: external_exports.boolean().optional().describe("When true, list active modes across all sessions (legacy + every session-scoped dir). Overrides the default current-session scope.")
   },
   handler: async (args) => {
-    const { workingDirectory, session_id } = args;
+    const { workingDirectory, session_id, all } = args;
     try {
       const root = validateWorkingDirectory(workingDirectory);
-      const sessionId = session_id;
+      const explicitSessionId = session_id;
+      const showAll = all === true;
+      const sessionId = explicitSessionId ?? (showAll ? void 0 : resolveSessionId({ context: "cli" }));
       if (sessionId) {
         validateSessionId(sessionId);
         const activeModes = [...getActiveModes(root, sessionId)];
@@ -26118,7 +26125,7 @@ var sessionSearchTool = {
 // src/tools/trace-tools.ts
 var REPLAY_PREFIX2 = "agent-replay-";
 function findLatestSessionId(directory) {
-  const stateDir = (0, import_path27.join)(directory, ".omc", "state");
+  const stateDir = (0, import_path27.join)(getOmcRoot(directory), "state");
   try {
     const files = (0, import_fs20.readdirSync)(stateDir).filter((f) => f.startsWith(REPLAY_PREFIX2) && f.endsWith(".jsonl")).map((f) => ({
       name: f,
