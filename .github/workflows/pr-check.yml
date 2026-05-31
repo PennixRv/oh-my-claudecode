@@ -101,3 +101,16 @@ jobs:
             if (pr.draft) {
               core.notice('This is a draft PR - CI will run but merge is blocked');
             }
+
+  gajae-self-hosted-smoke:
+    name: Gajae self-hosted runner smoke
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64, gajae-layofflabs-2]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify runner
+        run: |
+          echo "runner=$(uname -a)"
+          git --version
+
