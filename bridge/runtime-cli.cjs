@@ -1180,8 +1180,8 @@ function shouldAttemptAdaptiveRetry(args) {
   return true;
 }
 async function sendToWorker(_sessionName, paneId, message) {
-  if (message.length > 200) {
-    console.warn(`[tmux-session] sendToWorker: message rejected (${message.length} chars exceeds 200 char limit)`);
+  if (message.length > 500) {
+    console.warn(`[tmux-session] sendToWorker: message rejected (${message.length} chars exceeds 500 char limit)`);
     return false;
   }
   try {
@@ -1283,6 +1283,7 @@ async function sendToWorker(_sessionName, paneId, message) {
   }
 }
 async function injectToLeaderPane(sessionName2, leaderPaneId, message) {
+  if (process.env.OMC_LEADER_MAILBOX_INJECT === "0") return false;
   const prefixed = `[OMC_TMUX_INJECT] ${message}`.slice(0, 200);
   try {
     if (await paneInCopyMode(leaderPaneId)) {
@@ -1672,6 +1673,114 @@ var init_file_lock = __esm({
   }
 });
 
+// src/team/report-persistence.ts
+var report_persistence_exports = {};
+__export(report_persistence_exports, {
+  captureTaskReport: () => captureTaskReport,
+  cleanupOldReports: () => cleanupOldReports
+});
+async function captureTaskReport(params) {
+  const { teamName, taskId, workerName: workerName2, status, result, error, cwd } = params;
+  const reportsDir = (0, import_path22.join)(cwd, REPORTS_DIR);
+  let body = "";
+  let source = "";
+  const workerReportPath = (0, import_path22.join)(
+    cwd,
+    ".omc",
+    "state",
+    "team",
+    teamName,
+    "workers",
+    workerName2,
+    `report-task-${taskId}.md`
+  );
+  if ((0, import_fs20.existsSync)(workerReportPath)) {
+    try {
+      body = await (0, import_promises10.readFile)(workerReportPath, "utf-8");
+      source = "worker-report-file";
+    } catch {
+    }
+  }
+  if (!body && result) {
+    body = result;
+    source = "result";
+  }
+  if (!body && error) {
+    body = `error: ${error}`;
+    source = "error";
+  }
+  if (!body) return null;
+  await (0, import_promises10.mkdir)(reportsDir, { recursive: true });
+  const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "").slice(0, 15) + "Z";
+  const reportFile = (0, import_path22.join)(reportsDir, `${teamName}-task${taskId}-${ts}.md`);
+  const tmpFile = (0, import_path22.join)(reportsDir, `.tmp-${teamName}-task${taskId}-${ts}-${process.pid}`);
+  const checksum = (0, import_crypto5.createHash)("md5").update(`${teamName} ${taskId} ${body}`).digest("hex").slice(0, 8);
+  const content = [
+    "---",
+    `team: ${teamName}`,
+    `task_id: ${taskId}`,
+    `worker: ${workerName2}`,
+    `status: ${status}`,
+    `source: ${source}`,
+    `captured: ${(/* @__PURE__ */ new Date()).toISOString()}`,
+    "---",
+    "",
+    body,
+    "",
+    `<!-- report-end:${checksum} -->`
+  ].join("\n");
+  await (0, import_promises10.writeFile)(tmpFile, content, "utf-8");
+  await (0, import_promises10.writeFile)(reportFile, content, "utf-8");
+  try {
+    const { rename: rename4 } = await import("fs/promises");
+    await rename4(tmpFile, reportFile);
+  } catch {
+  }
+  return reportFile;
+}
+async function cleanupOldReports(cwd) {
+  const reportsDir = (0, import_path22.join)(cwd, REPORTS_DIR);
+  if (!(0, import_fs20.existsSync)(reportsDir)) return;
+  const { readdir: readdir2, unlink: unlink4 } = await import("fs/promises");
+  try {
+    const files = await readdir2(reportsDir);
+    const now = Date.now();
+    const maxAge = MAX_AGE_DAYS * 24 * 60 * 60 * 1e3;
+    for (const file of files) {
+      const filePath = (0, import_path22.join)(reportsDir, file);
+      if (file.startsWith(".tmp-")) {
+        try {
+          await unlink4(filePath);
+        } catch {
+        }
+        continue;
+      }
+      if (!file.endsWith(".md")) continue;
+      try {
+        const { stat: stat2 } = await import("fs/promises");
+        const s = await stat2(filePath);
+        if (now - s.mtimeMs > maxAge) {
+          await unlink4(filePath);
+        }
+      } catch {
+      }
+    }
+  } catch {
+  }
+}
+var import_promises10, import_path22, import_fs20, import_crypto5, REPORTS_DIR, MAX_AGE_DAYS;
+var init_report_persistence = __esm({
+  "src/team/report-persistence.ts"() {
+    "use strict";
+    import_promises10 = require("fs/promises");
+    import_path22 = require("path");
+    import_fs20 = require("fs");
+    import_crypto5 = require("crypto");
+    REPORTS_DIR = ".omc/reports/auto";
+    MAX_AGE_DAYS = 7;
+  }
+});
+
 // src/team/runtime-cli.ts
 var runtime_cli_exports = {};
 __export(runtime_cli_exports, {
@@ -1683,9 +1792,9 @@ __export(runtime_cli_exports, {
   writeResultArtifact: () => writeResultArtifact
 });
 module.exports = __toCommonJS(runtime_cli_exports);
-var import_fs21 = require("fs");
-var import_promises11 = require("fs/promises");
-var import_path23 = require("path");
+var import_fs22 = require("fs");
+var import_promises12 = require("fs/promises");
+var import_path24 = require("path");
 
 // src/team/runtime.ts
 var import_promises3 = require("fs/promises");
@@ -3679,13 +3788,13 @@ function buildTeamStateInstructionPath(teamName, instructionStateRoot, ...teamRe
 function generateTriggerMessage(teamName, workerName2, teamStateRoot2 = DEFAULT_INSTRUCTION_STATE_ROOT) {
   const inboxPath = buildTeamStateInstructionPath(teamName, teamStateRoot2, "workers", workerName2, "inbox.md");
   if (teamStateRoot2 !== DEFAULT_INSTRUCTION_STATE_ROOT) {
-    return `Read ${inboxPath}, work now, report progress.`;
+    return `\u8BFB\u53D6 ${inboxPath}\uFF0C\u5F00\u59CB\u5DE5\u4F5C\uFF0C\u6C47\u62A5\u8FDB\u5C55\u3002`;
   }
-  return `Read ${inboxPath}, execute now, report concrete progress.`;
+  return `\u8BFB\u53D6 ${inboxPath}\uFF0C\u7ACB\u5373\u6267\u884C\uFF0C\u6C47\u62A5\u5177\u4F53\u8FDB\u5C55\u3002`;
 }
 function generatePromptModeStartupPrompt(teamName, workerName2, teamStateRoot2 = DEFAULT_INSTRUCTION_STATE_ROOT, cliOutputContract) {
   const inboxPath = buildTeamStateInstructionPath(teamName, teamStateRoot2, "workers", workerName2, "inbox.md");
-  const base = `Open ${inboxPath}. Follow it and begin the assigned work.`;
+  const base = `\u6253\u5F00 ${inboxPath}\uFF0C\u6309\u7167\u5176\u4E2D\u7684\u6307\u793A\u5F00\u59CB\u5DE5\u4F5C\u3002`;
   return cliOutputContract ? `${base}
 ${cliOutputContract}` : base;
 }
@@ -3747,7 +3856,7 @@ function generateWorkerOverlay(params) {
   const claimTaskCommand = formatOmcCliInvocation(`team api claim-task --input "{\\"team_name\\":\\"${teamName}\\",\\"task_id\\":\\"<id>\\",\\"worker\\":\\"${workerName2}\\"}" --json`);
   const sendAckCommand = formatOmcCliInvocation(`team api send-message --input "{\\"team_name\\":\\"${teamName}\\",\\"from_worker\\":\\"${workerName2}\\",\\"to_worker\\":\\"leader-fixed\\",\\"body\\":\\"ACK: ${workerName2} initialized\\"}" --json`);
   const completeTaskCommand = formatOmcCliInvocation(`team api transition-task-status --input "{\\"team_name\\":\\"${teamName}\\",\\"task_id\\":\\"<id>\\",\\"from\\":\\"in_progress\\",\\"to\\":\\"completed\\",\\"claim_token\\":\\"<claim_token>\\",\\"result\\":\\"Summary: <what changed>\\\\nVerification: <tests/checks run>\\\\nSubagent skip reason: worker protocol forbids nested subagents; completed focused probe in-session\\"}" --json`);
-  const failTaskCommand = formatOmcCliInvocation(`team api transition-task-status --input "{\\"team_name\\":\\"${teamName}\\",\\"task_id\\":\\"<id>\\",\\"from\\":\\"in_progress\\",\\"to\\":\\"failed\\",\\"claim_token\\":\\"<claim_token>\\"}" --json`);
+  const failTaskCommand = formatOmcCliInvocation(`team api transition-task-status --input "{\\"team_name\\":\\"${teamName}\\",\\"task_id\\":\\"<id>\\",\\"from\\":\\"in_progress\\",\\"to\\":\\"failed\\",\\"claim_token\\":\\"<claim_token>\\",\\"error\\":\\"<failure reason>\\"}" --json`);
   const readTaskCommand = formatOmcCliInvocation(`team api read-task --input "{\\"team_name\\":\\"${teamName}\\",\\"task_id\\":\\"<id>\\"}" --json`);
   const releaseClaimCommand = formatOmcCliInvocation(`team api release-task-claim --input "{\\"team_name\\":\\"${teamName}\\",\\"task_id\\":\\"<id>\\",\\"claim_token\\":\\"<claim_token>\\",\\"worker\\":\\"${workerName2}\\"}" --json`);
   const mailboxListCommand = formatOmcCliInvocation(`team api mailbox-list --input "{\\"team_name\\":\\"${teamName}\\",\\"worker\\":\\"${workerName2}\\"}" --json`);
@@ -5860,9 +5969,9 @@ async function waitForSentinelReadiness(options = {}) {
 
 // src/team/runtime-v2.ts
 init_tmux_utils();
-var import_path22 = require("path");
-var import_fs20 = require("fs");
-var import_promises10 = require("fs/promises");
+var import_path23 = require("path");
+var import_fs21 = require("fs");
+var import_promises11 = require("fs/promises");
 var import_perf_hooks = require("perf_hooks");
 init_worktree_paths();
 
@@ -5939,7 +6048,7 @@ var DEFAULT_TEAM_GOVERNANCE = {
   delegation_only: false,
   plan_approval_required: false,
   nested_teams_allowed: false,
-  one_team_per_leader_session: true,
+  one_team_per_leader_session: false,
   cleanup_requires_all_workers_inactive: true
 };
 function normalizeTeamTransportPolicy(policy) {
@@ -6076,10 +6185,10 @@ async function readJsonSafe2(filePath) {
   }
 }
 async function writeAtomic(filePath, data) {
-  const { writeFile: writeFile8 } = await import("fs/promises");
+  const { writeFile: writeFile9 } = await import("fs/promises");
   await (0, import_promises5.mkdir)((0, import_path18.dirname)(filePath), { recursive: true });
   const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
-  await writeFile8(tmpPath, data, "utf-8");
+  await writeFile9(tmpPath, data, "utf-8");
   const { rename: rename4 } = await import("fs/promises");
   await rename4(tmpPath, filePath);
 }
@@ -6092,7 +6201,7 @@ function configFromManifest(manifest) {
     governance: manifest.governance,
     worker_launch_mode: manifest.policy.worker_launch_mode,
     worker_count: manifest.worker_count,
-    max_workers: 20,
+    max_workers: 5,
     workers: manifest.workers,
     created_at: manifest.created_at,
     tmux_session: manifest.tmux_session,
@@ -6122,7 +6231,7 @@ async function readTeamConfig(teamName, cwd) {
     workers: [...config.workers ?? [], ...manifest.workers ?? []],
     worker_count: Math.max(config.worker_count ?? 0, manifest.worker_count ?? 0),
     next_task_id: Math.max(config.next_task_id ?? 1, manifest.next_task_id ?? 1),
-    max_workers: Math.max(config.max_workers ?? 0, 20)
+    max_workers: Math.max(config.max_workers ?? 0, 5)
   });
 }
 async function readTeamManifest(teamName, cwd) {
@@ -8079,33 +8188,117 @@ function buildV2TaskInstruction(teamName, workerName2, task, taskId, cliOutputCo
     `team api transition-task-status --input '${JSON.stringify({ team_name: teamName, task_id: taskId, from: "in_progress", to: "completed", claim_token: "<claim_token>", result: "Summary: <what changed>\\nVerification: <tests/checks run>\\nSubagent skip reason: worker protocol forbids nested subagents; completed focused probe in-session" })}' --json`
   );
   const failTaskCommand = formatOmcCliInvocation(
-    `team api transition-task-status --input '${JSON.stringify({ team_name: teamName, task_id: taskId, from: "in_progress", to: "failed", claim_token: "<claim_token>" })}' --json`
+    `team api transition-task-status --input '${JSON.stringify({ team_name: teamName, task_id: taskId, from: "in_progress", to: "failed", claim_token: "<claim_token>", error: "<failure reason>" })}' --json`
   );
   return [
-    `## REQUIRED: Task Lifecycle Commands`,
-    `You MUST run these commands. Do NOT skip any step.`,
+    `## \u4EFB\u52A1\u751F\u547D\u5468\u671F\u547D\u4EE4\uFF08\u5FC5\u987B\u6267\u884C\uFF09`,
+    `\u5FC5\u987B\u4F9D\u6B21\u6267\u884C\u4EE5\u4E0B\u547D\u4EE4\uFF0C\u4E0D\u53EF\u8DF3\u8FC7\u4EFB\u4F55\u6B65\u9AA4\u3002`,
     ``,
-    `1. Claim your task:`,
+    `1. \u8BA4\u9886\u4EFB\u52A1\uFF1A`,
     `   ${claimTaskCommand}`,
-    `   Save the claim_token from the response.`,
-    `2. Do the work described below.`,
-    `3. On completion (use claim_token from step 1):`,
+    `   \u4FDD\u5B58\u8FD4\u56DE\u7684 claim_token\uFF0C\u540E\u7EED\u6B65\u9AA4\u9700\u8981\u3002`,
+    `2. \u6267\u884C\u4E0B\u65B9\u63CF\u8FF0\u7684\u5DE5\u4F5C\u3002`,
+    `3. \u6807\u8BB0\u5B8C\u6210\uFF08\u4F7F\u7528\u6B65\u9AA4 1 \u7684 claim_token\uFF09\uFF1A`,
     `   ${completeTaskCommand}`,
-    `   The result field is required for completion evidence. For broad delegated tasks, include either "Subagent skip reason: <why no nested worker was needed/allowed>" or, only when explicitly allowed by the leader, "Subagent spawn evidence: <child task names/thread ids and integrated findings>".`,
-    `4. On failure (use claim_token from step 1):`,
+    `   result \u5B57\u6BB5\u5FC5\u987B\u5305\u542B\u5B8C\u6210\u8BC1\u636E\u3002\u5BF9\u59D4\u6258\u7C7B\u4EFB\u52A1\uFF0C\u987B\u5305\u542B "Subagent skip reason: worker \u534F\u8BAE\u7981\u6B62\u5D4C\u5957\u5B50\u4EE3\u7406\uFF0C\u6240\u6709\u5DE5\u4F5C\u5728\u5F53\u524D session \u5185\u5B8C\u6210" \u6216\uFF08leader \u660E\u786E\u5141\u8BB8\u65F6\uFF09"Subagent spawn evidence: <\u5B50\u4EFB\u52A1\u540D\u79F0/\u7EBF\u7A0B ID \u548C\u6574\u5408\u7ED3\u679C>"\u3002`,
+    `4. \u6807\u8BB0\u5931\u8D25\uFF08\u4F7F\u7528\u6B65\u9AA4 1 \u7684 claim_token\uFF09\uFF1A`,
     `   ${failTaskCommand}`,
-    `5. ACK/progress replies are not a stop signal. Keep executing your assigned or next feasible work until the task is actually complete or failed, then transition and exit.`,
+    `   \u26A0\uFE0F \u6CE8\u610F\uFF1A--input JSON \u4E2D\u5FC5\u987B\u5305\u542B "error" \u5B57\u6BB5\uFF08\u4F8B\u5982 "error":"<\u5931\u8D25\u539F\u56E0>"\uFF09\uFF0C\u5426\u5219\u62A5\u544A\u65E0\u6CD5\u88AB\u6301\u4E45\u5316\u3002`,
+    `5. ACK/\u8FDB\u5EA6\u56DE\u590D\u4E0D\u662F\u505C\u6B62\u4FE1\u53F7\u3002\u7EE7\u7EED\u6267\u884C\u76F4\u5230\u4EFB\u52A1\u771F\u6B63\u5B8C\u6210\u6216\u5931\u8D25\uFF0C\u7136\u540E transition \u518D\u9000\u51FA\u3002`,
     ``,
-    `## Task Assignment`,
+    `## \u4EFB\u52A1\u5206\u914D`,
     `Task ID: ${taskId}`,
     `Worker: ${workerName2}`,
     `Subject: ${task.subject}`,
     ``,
     task.description,
     ``,
-    `REMINDER: You MUST run transition-task-status before exiting. Do NOT write done.json or edit task files directly.`,
+    `\u63D0\u9192\uFF1A\u9000\u51FA\u524D\u5FC5\u987B\u6267\u884C transition-task-status\u3002\u4E0D\u8981\u76F4\u63A5\u7F16\u8F91 done.json \u6216\u4EFB\u52A1\u6587\u4EF6\u3002`,
     ...cliOutputContract ? [cliOutputContract] : []
   ].join("\n");
+}
+function generateRolePreface(agentType, role) {
+  const normalizedRole = (role || "").toLowerCase();
+  if (normalizedRole === "code-reviewer" || normalizedRole === "codex-code-reviewer") {
+    return `<!-- omc-role-preface: code-reviewer -->
+
+## \u89D2\u8272\u5B9A\u4F4D
+
+\u4F60\u662F **\u72EC\u7ACB\u4EE3\u7801\u5BA1\u67E5 worker**\u3002\u4F60\u7684\u804C\u8D23\u662F\u53D1\u73B0\u4EE3\u7801\u7F3A\u9677\u3001\u5B89\u5168\u6F0F\u6D1E\u3001\u6027\u80FD\u95EE\u9898\u548C\u903B\u8F91\u9519\u8BEF\u3002
+
+- findings > \u8BC1\u636E > \u9A8C\u8BC1\u65B9\u5F0F > \u98CE\u9669\u5217\u8868
+- \u4E0D\u8981\u56E0\u4E3A leader \u5DF2\u6709\u503E\u5411\u5C31\u653E\u5F03\u53CD\u9A73
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u4E25\u91CD\u5EA6/\u6587\u4EF6/\u884C\u53F7/\u95EE\u9898\u63CF\u8FF0/\u4FEE\u590D\u5EFA\u8BAE
+
+---
+
+`;
+  }
+  if (normalizedRole === "security-reviewer") {
+    return `<!-- omc-role-preface: security-reviewer -->
+
+## \u89D2\u8272\u5B9A\u4F4D
+
+\u4F60\u662F **\u5B89\u5168\u5BA1\u67E5 worker**\u3002\u4F60\u7684\u804C\u8D23\u662F\u53D1\u73B0\u5B89\u5168\u6F0F\u6D1E\u3001\u653B\u51FB\u9762\u548C\u5408\u89C4\u95EE\u9898\u3002
+
+- OWASP Top 10 / CWE \u8986\u76D6
+- \u6BCF\u4E2A finding \u9700\u6807\u6CE8\u5229\u7528\u96BE\u5EA6\u548C\u5F71\u54CD\u8303\u56F4
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u4E25\u91CD\u5EA6/CVE\u6620\u5C04/\u6587\u4EF6/\u884C\u53F7/\u4FEE\u590D\u65B9\u6848
+
+---
+
+`;
+  }
+  if (normalizedRole === "critic") {
+    return `<!-- omc-role-preface: critic -->
+
+## \u89D2\u8272\u5B9A\u4F4D
+
+\u4F60\u662F **\u72EC\u7ACB\u6311\u6218\u8005 worker**\u3002\u4F60\u7684\u804C\u8D23\u662F\u8D28\u7591\u73B0\u6709\u65B9\u6848\u3001\u6307\u51FA\u8FB9\u754C\u6761\u4EF6\u3001\u63D0\u51FA\u66FF\u4EE3\u8DEF\u5F84\u3002
+
+- \u5BF9\u6BCF\u4E2A\u7ED3\u8BBA\u63D0\u51FA\u81F3\u5C11\u4E00\u4E2A\u53CD\u4F8B
+- \u4E0D\u8981\u56E0 leader \u5DF2\u6709\u503E\u5411\u5C31\u653E\u5F03\u53CD\u9A73
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u5047\u8BBE/\u53CD\u4F8B/\u98CE\u9669\u8BC4\u4F30/\u66FF\u4EE3\u65B9\u6848
+
+---
+
+`;
+  }
+  const codexPreface = `<!-- omc-role-preface: codex default -->
+
+## \u89D2\u8272\u5B9A\u4F4D
+
+\u4F60\u662F **\u9ED8\u8BA4\u4E3B\u529B worker**\uFF08GPT-5.4/Codex\uFF09\u3002omc team \u672A\u6307\u5B9A\u6A21\u578B\u65F6\u9ED8\u8BA4\u4F7F\u7528\u4F60\u3002\u8986\u76D6\u573A\u666F\uFF1A\u7814\u7A76\u5206\u6790\u3001\u4EE3\u7801\u5BA1\u67E5\u3001\u5B89\u5168\u5BA1\u8BA1\u3001\u67B6\u6784\u8BBE\u8BA1\u3001Shell/CLI \u81EA\u52A8\u5316\u3001\u4EE3\u7801\u64B0\u5199\u3002
+
+- \u5BA1\u67E5/\u5BA1\u8BA1\uFF1Afindings > \u8BC1\u636E > \u9A8C\u8BC1\u65B9\u5F0F > \u98CE\u9669\u5217\u8868
+- \u67B6\u6784/\u8BBE\u8BA1\uFF1A\u6307\u51FA\u53CD\u4F8B\u548C\u8FB9\u754C\u6761\u4EF6\uFF0C\u4E0D\u8981\u56E0 leader \u5DF2\u6709\u503E\u5411\u5C31\u653E\u5F03\u53CD\u9A73
+- \u5B9E\u73B0\u4EFB\u52A1\uFF1A\u5148\u9A8C\u8BC1\u524D\u63D0\u5047\u8BBE\u518D\u52A8\u624B
+- \u4F60\u7684\u4EF7\u503C\u5728\u4E8E\u72EC\u7ACB\u5224\u65AD\u2014\u2014\u4E0E leader\uFF08DSv4\uFF09\u5F62\u6210\u5F02\u6784\u89C6\u89D2\u4E92\u8865
+
+---
+
+`;
+  const claudePreface = `<!-- omc-role-preface: claude specialist -->
+
+## \u89D2\u8272\u5B9A\u4F4D
+
+\u4F60\u662F **\u4E13\u957F\u8865\u5145 worker**\uFF08DSv4/Claude\uFF09\u3002\u4EC5\u5728\u4EE5\u4E0B\u573A\u666F\u4F7F\u7528\uFF1A\u4E2D\u6587\u6587\u6863\u64B0\u5199\u30011M \u957F\u4E0A\u4E0B\u6587\u641C\u7D22/\u9884\u626B\u3001\u4E0E codex \u914D\u5BF9\u7684\u5F02\u6784\u4EA4\u53C9\u9A8C\u8BC1\u3001\u7528\u6237\u660E\u786E\u6307\u5B9A\u3002
+
+- \u4E2D\u6587\u8F93\u51FA\u4F18\u5148
+- \u957F\u4E0A\u4E0B\u6587\u4EFB\u52A1\u5229\u7528 1M \u7A97\u53E3\u4F18\u52BF
+- \u4EA4\u53C9\u9A8C\u8BC1\u65F6\u4ECE\u4E0D\u540C\u89C6\u89D2\u5BA1\u89C6 codex \u7684\u7ED3\u8BBA
+
+---
+
+`;
+  switch (agentType) {
+    case "codex":
+      return codexPreface;
+    case "claude":
+      return claudePreface;
+    default:
+      return "";
+  }
 }
 async function notifyStartupInbox(sessionName2, paneId, message) {
   const notified = await notifyPaneWithRetry2(sessionName2, paneId, message, 1);
@@ -8128,7 +8321,7 @@ function hasWorkerStatusProgress(status, taskId) {
 }
 async function hasWorkerTaskClaimEvidence(teamName, workerName2, cwd, taskId) {
   try {
-    const raw = await (0, import_promises10.readFile)(absPath(cwd, TeamPaths.taskFile(teamName, taskId)), "utf-8");
+    const raw = await (0, import_promises11.readFile)(absPath(cwd, TeamPaths.taskFile(teamName, taskId)), "utf-8");
     const task = JSON.parse(raw);
     return task.owner === workerName2 && ["in_progress", "completed", "failed"].includes(task.status);
   } catch {
@@ -8176,13 +8369,13 @@ async function spawnV2Worker(opts) {
   const injectContract = shouldInjectContract(opts.role ?? null, opts.agentType);
   const outputFile = injectContract && opts.role ? cliWorkerOutputFilePath(teamStateRoot(opts.cwd, opts.teamName), opts.workerName) : void 0;
   const cliOutputContract = injectContract && opts.role && outputFile ? renderCliWorkerOutputContract(opts.role, outputFile) : void 0;
-  const instruction = buildV2TaskInstruction(
+  const instruction = `${generateRolePreface(opts.agentType, opts.role)}${buildV2TaskInstruction(
     opts.teamName,
     opts.workerName,
     opts.task,
     opts.taskId,
     cliOutputContract
-  );
+  )}`;
   const instructionStateRoot = opts.worktreePath ? "$OMC_TEAM_STATE_ROOT" : void 0;
   const inboxTriggerMessage = generateTriggerMessage(opts.teamName, opts.workerName, instructionStateRoot);
   const promptModeStartupPrompt = generatePromptModeStartupPrompt(
@@ -8356,19 +8549,19 @@ async function rollbackUnpersistedNativeWorktreeStartup(teamName, cwd, cause) {
   try {
     const cleanup = cleanupTeamWorktrees(teamName, cwd);
     if (cleanup.preserved.length === 0) {
-      await (0, import_promises10.rm)(teamRoot, { recursive: true, force: true });
+      await (0, import_promises11.rm)(teamRoot, { recursive: true, force: true });
       return;
     }
-    await (0, import_promises10.mkdir)(teamRoot, { recursive: true });
-    await (0, import_promises10.writeFile)((0, import_path22.join)(teamRoot, "startup-failure.json"), JSON.stringify({
+    await (0, import_promises11.mkdir)(teamRoot, { recursive: true });
+    await (0, import_promises11.writeFile)((0, import_path23.join)(teamRoot, "startup-failure.json"), JSON.stringify({
       reason: "startup_failed_before_config_persisted",
       error: errorMessage,
       preserved: cleanup.preserved,
       recorded_at: (/* @__PURE__ */ new Date()).toISOString()
     }, null, 2), "utf-8");
   } catch (rollbackError) {
-    await (0, import_promises10.mkdir)(teamRoot, { recursive: true });
-    await (0, import_promises10.writeFile)((0, import_path22.join)(teamRoot, "startup-failure.json"), JSON.stringify({
+    await (0, import_promises11.mkdir)(teamRoot, { recursive: true });
+    await (0, import_promises11.writeFile)((0, import_path23.join)(teamRoot, "startup-failure.json"), JSON.stringify({
       reason: "startup_failed_before_config_persisted",
       error: errorMessage,
       rollback_error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
@@ -8394,7 +8587,7 @@ async function rollbackStartedNativeWorktreeStartup(args) {
 }
 async function startTeamV2(config) {
   const sanitized = sanitizeTeamName(config.teamName);
-  const leaderCwd = (0, import_path22.resolve)(config.cwd);
+  const leaderCwd = (0, import_path23.resolve)(config.cwd);
   validateTeamName(sanitized);
   const pluginCfg = config.pluginConfig ?? loadConfig();
   const resolvedRouting = buildResolvedRoutingSnapshot(pluginCfg);
@@ -8444,9 +8637,9 @@ async function startTeamV2(config) {
     } catch {
     }
   }
-  await (0, import_promises10.mkdir)(absPath(leaderCwd, TeamPaths.tasks(sanitized)), { recursive: true });
-  await (0, import_promises10.mkdir)(absPath(leaderCwd, TeamPaths.workers(sanitized)), { recursive: true });
-  await (0, import_promises10.mkdir)((0, import_path22.join)(getOmcRoot(leaderCwd), "state", "team", sanitized, "mailbox"), { recursive: true });
+  await (0, import_promises11.mkdir)(absPath(leaderCwd, TeamPaths.tasks(sanitized)), { recursive: true });
+  await (0, import_promises11.mkdir)(absPath(leaderCwd, TeamPaths.workers(sanitized)), { recursive: true });
+  await (0, import_promises11.mkdir)((0, import_path23.join)(getOmcRoot(leaderCwd), "state", "team", sanitized, "mailbox"), { recursive: true });
   const missingBinaryLogFailure = createSwallowedErrorLogger(
     "team.runtime-v2.startTeamV2 cli_binary_missing event failed"
   );
@@ -8464,8 +8657,8 @@ async function startTeamV2(config) {
   for (let i = 0; i < config.tasks.length; i++) {
     const taskId = String(i + 1);
     const taskFilePath = absPath(leaderCwd, TeamPaths.taskFile(sanitized, taskId));
-    await (0, import_promises10.mkdir)((0, import_path22.join)(taskFilePath, ".."), { recursive: true });
-    await (0, import_promises10.writeFile)(taskFilePath, JSON.stringify({
+    await (0, import_promises11.mkdir)((0, import_path23.join)(taskFilePath, ".."), { recursive: true });
+    await (0, import_promises11.writeFile)(taskFilePath, JSON.stringify({
       id: taskId,
       subject: config.tasks[i].subject,
       description: config.tasks[i].description,
@@ -8540,7 +8733,7 @@ async function startTeamV2(config) {
       });
       const worktree = workerWorktrees.get(wName);
       if (worktree) {
-        const overlayContent = await (0, import_promises10.readFile)(overlayPath, "utf-8");
+        const overlayContent = await (0, import_promises11.readFile)(overlayPath, "utf-8");
         installWorktreeRootAgents(sanitized, wName, leaderCwd, worktree.path, overlayContent);
       }
     }
@@ -8587,7 +8780,7 @@ async function startTeamV2(config) {
     policy: DEFAULT_TEAM_TRANSPORT_POLICY,
     governance: DEFAULT_TEAM_GOVERNANCE,
     worker_count: config.workerCount,
-    max_workers: 20,
+    max_workers: 5,
     workers: workersInfo,
     created_at: (/* @__PURE__ */ new Date()).toISOString(),
     tmux_session: sessionName2,
@@ -8650,7 +8843,7 @@ async function startTeamV2(config) {
     next_worker_index: teamConfig.next_worker_index
   };
   try {
-    await (0, import_promises10.writeFile)(absPath(leaderCwd, TeamPaths.manifest(sanitized)), JSON.stringify(teamManifest, null, 2), "utf-8");
+    await (0, import_promises11.writeFile)(absPath(leaderCwd, TeamPaths.manifest(sanitized)), JSON.stringify(teamManifest, null, 2), "utf-8");
   } catch (error) {
     await rollbackStartedNativeWorktreeStartup({
       teamName: sanitized,
@@ -8838,7 +9031,7 @@ async function processCliWorkerVerdicts(teamName, cwd) {
     }
     let payload;
     try {
-      const raw = await (0, import_promises10.readFile)(outputFile, "utf-8");
+      const raw = await (0, import_promises11.readFile)(outputFile, "utf-8");
       payload = parseCliWorkerVerdict(raw);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
@@ -8927,6 +9120,16 @@ async function processCliWorkerVerdicts(teamName, cwd) {
       task_id: targetTaskId,
       reason: `cli_worker_verdict:${payload.verdict}`
     }, cwd).catch(logEventFailure);
+    const { captureTaskReport: captureVerdictReport } = await Promise.resolve().then(() => (init_report_persistence(), report_persistence_exports));
+    captureVerdictReport({
+      teamName: sanitized,
+      taskId: targetTaskId,
+      workerName: worker.name,
+      status: terminalStatus,
+      result: payload.summary ? `${payload.verdict.toUpperCase()} (${payload.role ?? "reviewer"}): ${payload.summary}${payload.findings ? "\n\nFindings:\n" + payload.findings : ""}` : void 0,
+      cwd
+    }).catch(() => {
+    });
     try {
       await rename4(outputFile, outputFile + ".processed");
     } catch {
@@ -9118,7 +9321,7 @@ async function shutdownTeamV2(teamName, cwd, options = {}) {
   );
   const force = options.force === true;
   const ralph = options.ralph === true;
-  const timeoutMs = options.timeoutMs ?? 15e3;
+  const timeoutMs = options.timeoutMs ?? 3e3;
   const sanitized = sanitizeTeamName(teamName);
   const config = await readTeamConfig(sanitized, cwd);
   const finalizeAutoMerge = async () => {
@@ -9359,10 +9562,10 @@ function parseWatchdogFailedAt(marker) {
   throw new Error("watchdog marker missing valid failedAt");
 }
 async function checkWatchdogFailedMarker(stateRoot2, startTime) {
-  const markerPath = (0, import_path23.join)(stateRoot2, "watchdog-failed.json");
+  const markerPath = (0, import_path24.join)(stateRoot2, "watchdog-failed.json");
   let raw;
   try {
-    raw = await (0, import_promises11.readFile)(markerPath, "utf-8");
+    raw = await (0, import_promises12.readFile)(markerPath, "utf-8");
   } catch (err) {
     const code = err.code;
     if (code === "ENOENT") return { failed: false };
@@ -9384,21 +9587,21 @@ async function checkWatchdogFailedMarker(stateRoot2, startTime) {
     return { failed: true, reason: `Watchdog marked team failed at ${new Date(failedAt).toISOString()}` };
   }
   try {
-    await (0, import_promises11.unlink)(markerPath);
+    await (0, import_promises12.unlink)(markerPath);
   } catch {
   }
   return { failed: false };
 }
 async function writeResultArtifact(output, finishedAt, jobId = process.env.OMC_JOB_ID, omcJobsDir = process.env.OMC_JOBS_DIR) {
   if (!jobId || !omcJobsDir) return;
-  const resultPath = (0, import_path23.join)(omcJobsDir, `${jobId}-result.json`);
+  const resultPath = (0, import_path24.join)(omcJobsDir, `${jobId}-result.json`);
   const tmpPath = `${resultPath}.tmp`;
-  await (0, import_promises11.writeFile)(
+  await (0, import_promises12.writeFile)(
     tmpPath,
     JSON.stringify({ ...output, finishedAt }),
     "utf-8"
   );
-  await (0, import_promises11.rename)(tmpPath, resultPath);
+  await (0, import_promises12.rename)(tmpPath, resultPath);
 }
 function buildCliOutput(stateRoot2, teamName, status, workerCount, startTimeMs) {
   const taskResults = collectTaskResults(stateRoot2);
@@ -9423,20 +9626,20 @@ function buildTerminalCliResult(stateRoot2, teamName, phase, workerCount, startT
 async function writePanesFile(jobId, paneIds, leaderPaneId, sessionName2, ownsWindow) {
   const omcJobsDir = process.env.OMC_JOBS_DIR;
   if (!jobId || !omcJobsDir) return;
-  const panesPath = (0, import_path23.join)(omcJobsDir, `${jobId}-panes.json`);
-  await (0, import_promises11.writeFile)(
+  const panesPath = (0, import_path24.join)(omcJobsDir, `${jobId}-panes.json`);
+  await (0, import_promises12.writeFile)(
     panesPath + ".tmp",
     JSON.stringify({ paneIds: [...paneIds], leaderPaneId, sessionName: sessionName2, ownsWindow })
   );
-  await (0, import_promises11.rename)(panesPath + ".tmp", panesPath);
+  await (0, import_promises12.rename)(panesPath + ".tmp", panesPath);
 }
 function collectTaskResults(stateRoot2) {
-  const tasksDir = (0, import_path23.join)(stateRoot2, "tasks");
+  const tasksDir = (0, import_path24.join)(stateRoot2, "tasks");
   try {
-    const files = (0, import_fs21.readdirSync)(tasksDir).filter((f) => f.endsWith(".json"));
+    const files = (0, import_fs22.readdirSync)(tasksDir).filter((f) => f.endsWith(".json"));
     return files.map((f) => {
       try {
-        const raw = (0, import_fs21.readFileSync)((0, import_path23.join)(tasksDir, f), "utf-8");
+        const raw = (0, import_fs22.readFileSync)((0, import_path24.join)(tasksDir, f), "utf-8");
         const task = JSON.parse(raw);
         return {
           taskId: task.id ?? f.replace(".json", ""),
@@ -9491,7 +9694,7 @@ async function main() {
     autoMerge = false
   } = input;
   const workerCount = input.workerCount ?? agentTypes.length;
-  const stateRoot2 = (0, import_path23.join)(cwd, `.omc/state/team/${teamName}`);
+  const stateRoot2 = (0, import_path24.join)(cwd, `.omc/state/team/${teamName}`);
   const config = {
     teamName,
     workerCount,
@@ -9693,7 +9896,7 @@ async function main() {
       if (snap.allTasksTerminal) {
         const hasFailures = snap.tasks.failed > 0;
         if (!hasFailures) {
-          const sentinelLogPath = (0, import_path23.join)(cwd, "sentinel_stop.jsonl");
+          const sentinelLogPath = (0, import_path24.join)(cwd, "sentinel_stop.jsonl");
           const gateResult = await waitForSentinelReadiness({
             workspace: cwd,
             logPath: sentinelLogPath,
@@ -9770,7 +9973,7 @@ async function main() {
     mismatchStreak = 0;
     const terminalStatus = getTerminalStatus(snap.taskCounts, expectedTaskCount);
     if (terminalStatus === "completed") {
-      const sentinelLogPath = (0, import_path23.join)(cwd, "sentinel_stop.jsonl");
+      const sentinelLogPath = (0, import_path24.join)(cwd, "sentinel_stop.jsonl");
       const gateResult = await waitForSentinelReadiness({
         workspace: cwd,
         logPath: sentinelLogPath,

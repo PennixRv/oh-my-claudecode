@@ -91,7 +91,7 @@ export async function scaleUp(teamName, count, agentType, tasks, cwd, env = proc
         if (!config) {
             return { ok: false, error: `Team ${sanitized} not found` };
         }
-        const maxWorkers = config.max_workers ?? 20;
+        const maxWorkers = config.max_workers ?? 5;
         const currentCount = config.workers.length;
         if (currentCount + count > maxWorkers) {
             return {

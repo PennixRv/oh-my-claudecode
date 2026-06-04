@@ -934,8 +934,8 @@ export function shouldAttemptAdaptiveRetry(args) {
  * Returns false on error (does not throw).
  */
 export async function sendToWorker(_sessionName, paneId, message) {
-    if (message.length > 200) {
-        console.warn(`[tmux-session] sendToWorker: message rejected (${message.length} chars exceeds 200 char limit)`);
+    if (message.length > 500) {
+        console.warn(`[tmux-session] sendToWorker: message rejected (${message.length} chars exceeds 500 char limit)`);
         return false;
     }
     try {
@@ -1067,6 +1067,9 @@ export async function sendToWorker(_sessionName, paneId, message) {
  * Returns false on error (does not throw).
  */
 export async function injectToLeaderPane(sessionName, leaderPaneId, message) {
+    // Fork: respect OMC_LEADER_MAILBOX_INJECT env suppression
+    if (process.env.OMC_LEADER_MAILBOX_INJECT === '0')
+        return false;
     const prefixed = `[OMC_TMUX_INJECT] ${message}`.slice(0, 200);
     // If the leader is running a blocking tool (e.g. omc_run_team_wait shows
     // "esc to interrupt"), send C-c first so the message is not queued in the

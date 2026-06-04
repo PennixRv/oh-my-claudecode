@@ -18305,8 +18305,8 @@ function shouldAttemptAdaptiveRetry(args) {
   return true;
 }
 async function sendToWorker(_sessionName, paneId, message) {
-  if (message.length > 200) {
-    console.warn(`[tmux-session] sendToWorker: message rejected (${message.length} chars exceeds 200 char limit)`);
+  if (message.length > 500) {
+    console.warn(`[tmux-session] sendToWorker: message rejected (${message.length} chars exceeds 500 char limit)`);
     return false;
   }
   try {
@@ -18554,7 +18554,7 @@ var DEFAULT_TEAM_GOVERNANCE = {
   delegation_only: false,
   plan_approval_required: false,
   nested_teams_allowed: false,
-  one_team_per_leader_session: true,
+  one_team_per_leader_session: false,
   cleanup_requires_all_workers_inactive: true
 };
 function normalizeTeamTransportPolicy(policy) {
@@ -18696,7 +18696,7 @@ function configFromManifest(manifest) {
     governance: manifest.governance,
     worker_launch_mode: manifest.policy.worker_launch_mode,
     worker_count: manifest.worker_count,
-    max_workers: 20,
+    max_workers: 5,
     workers: manifest.workers,
     created_at: manifest.created_at,
     tmux_session: manifest.tmux_session,
@@ -18726,7 +18726,7 @@ async function readTeamConfig(teamName, cwd) {
     workers: [...config2.workers ?? [], ...manifest.workers ?? []],
     worker_count: Math.max(config2.worker_count ?? 0, manifest.worker_count ?? 0),
     next_task_id: Math.max(config2.next_task_id ?? 1, manifest.next_task_id ?? 1),
-    max_workers: Math.max(config2.max_workers ?? 0, 20)
+    max_workers: Math.max(config2.max_workers ?? 0, 5)
   });
 }
 async function readTeamManifest(teamName, cwd) {

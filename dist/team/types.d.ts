@@ -485,6 +485,6 @@ export interface WorkerHeartbeat {
     turn_count: number;
     alive: boolean;
 }
-export declare const DEFAULT_MAX_WORKERS = 20;
-export declare const ABSOLUTE_MAX_WORKERS = 20;
+export declare const DEFAULT_MAX_WORKERS = 5;
+export declare const ABSOLUTE_MAX_WORKERS = 5;
 //# sourceMappingURL=types.d.ts.map

@@ -16,7 +16,7 @@ import { tmuxExec } from '../tmux-utils.js';
 import { getOmcRoot } from '../../lib/worktree-paths.js';
 const HELP_TOKENS = new Set(['--help', '-h', 'help']);
 const MIN_WORKER_COUNT = 1;
-const MAX_WORKER_COUNT = 20;
+const MAX_WORKER_COUNT = 5;
 const VALID_TEAM_CLI_AGENT_TYPES = new Set(['claude', 'codex', 'gemini', 'grok']);
 const DEFAULT_TEAM_CLI_AGENT_TYPE = 'claude';
 const TEAM_HELP = `
@@ -792,6 +792,9 @@ async function handleTeamApi(args, cwd) {
  */
 export async function teamCommand(args) {
     const cwd = process.cwd();
+    // Fork: cleanup old reports on any team command
+    const { cleanupOldReports } = await import('../../team/report-persistence.js');
+    cleanupOldReports(cwd).catch(() => { });
     const [subcommandRaw] = args;
     const subcommand = (subcommandRaw || '').toLowerCase();
     if (HELP_TOKENS.has(subcommand) || !subcommand) {

@@ -8,7 +8,7 @@ export const DEFAULT_TEAM_GOVERNANCE = {
     delegation_only: false,
     plan_approval_required: false,
     nested_teams_allowed: false,
-    one_team_per_leader_session: true,
+    one_team_per_leader_session: false,
     cleanup_requires_all_workers_inactive: true,
 };
 export function normalizeTeamTransportPolicy(policy) {
