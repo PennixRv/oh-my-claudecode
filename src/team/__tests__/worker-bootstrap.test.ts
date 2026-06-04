@@ -49,14 +49,14 @@ describe('worker-bootstrap', () => {
   describe('generateWorkerOverlay', () => {
     it('uses urgent trigger wording that requires immediate work and concrete progress', () => {
       expect(generateTriggerMessage('test-team', 'worker-1')).toContain('.omc/state/team/test-team/workers/worker-1/inbox.md');
-      expect(generateTriggerMessage('test-team', 'worker-1')).toContain('execute now');
-      expect(generateTriggerMessage('test-team', 'worker-1')).toContain('concrete progress');
+      expect(generateTriggerMessage('test-team', 'worker-1')).toContain('立即执行');
+      expect(generateTriggerMessage('test-team', 'worker-1')).toContain('具体进展');
       expect(generateMailboxTriggerMessage('test-team', 'worker-1', 2)).toContain('.omc/state/team/test-team/mailbox/worker-1.json');
-      expect(generateMailboxTriggerMessage('test-team', 'worker-1', 2)).toContain('act now');
-      expect(generateMailboxTriggerMessage('test-team', 'worker-1', 2)).toContain('concrete progress');
+      expect(generateMailboxTriggerMessage('test-team', 'worker-1', 2)).toContain('立即执行');
+      expect(generateMailboxTriggerMessage('test-team', 'worker-1', 2)).toContain('具体进展');
     });
 
-    it('keeps trigger messages under sendToWorker 200-char limit even with long names', () => {
+    it('keeps trigger messages under sendToWorker 500-char limit even with long names', () => {
       const longTeam = 'my-very-long-team-name-for-testing';
       const longWorker = 'codex-worker-with-long-name-1';
       const trigger = generateTriggerMessage(longTeam, longWorker);
@@ -71,7 +71,7 @@ describe('worker-bootstrap', () => {
       expect(generateTriggerMessage('test-team', 'worker-1', '$OMC_TEAM_STATE_ROOT'))
         .not.toContain('$OMC_TEAM_STATE_ROOT/team/test-team');
       expect(generateTriggerMessage('test-team', 'worker-1', '$OMC_TEAM_STATE_ROOT'))
-        .toContain('work now');
+        .toContain('开始工作');
       expect(generateMailboxTriggerMessage('test-team', 'worker-1', 2, '$OMC_TEAM_STATE_ROOT'))
         .toContain('$OMC_TEAM_STATE_ROOT/mailbox/worker-1.json');
       expect(generateMailboxTriggerMessage('test-team', 'worker-1', 2, '$OMC_TEAM_STATE_ROOT'))

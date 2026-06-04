@@ -492,7 +492,7 @@ describe('parseTeamArgs comma-separated multi-type specs', () => {
   });
 
   it('throws on total count exceeding maximum', () => {
-    expect(() => parseTeamArgs(['15:codex,10:gemini', 'big task'])).toThrow('exceeds maximum');
+    expect(() => parseTeamArgs(['15:codex,10:gemini', 'big task'])).toThrow('exceeds maximum 5');
   });
 });
 
