@@ -535,5 +535,5 @@ export interface WorkerHeartbeat {
   alive: boolean;
 }
 
-export const DEFAULT_MAX_WORKERS = 20;
-export const ABSOLUTE_MAX_WORKERS = 20;
+export const DEFAULT_MAX_WORKERS = 5;
+export const ABSOLUTE_MAX_WORKERS = 5;

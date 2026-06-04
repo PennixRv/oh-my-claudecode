@@ -46,9 +46,9 @@ export function generateTriggerMessage(
 ): string {
   const inboxPath = buildTeamStateInstructionPath(teamName, teamStateRoot, 'workers', workerName, 'inbox.md');
   if (teamStateRoot !== DEFAULT_INSTRUCTION_STATE_ROOT) {
-    return `Read ${inboxPath}, work now, report progress.`;
+    return `读取 ${inboxPath}，开始工作，汇报进展。`;
   }
-  return `Read ${inboxPath}, execute now, report concrete progress.`;
+  return `读取 ${inboxPath}，立即执行，汇报具体进展。`;
 }
 
 export function generatePromptModeStartupPrompt(
@@ -58,7 +58,7 @@ export function generatePromptModeStartupPrompt(
   cliOutputContract?: string,
 ): string {
   const inboxPath = buildTeamStateInstructionPath(teamName, teamStateRoot, 'workers', workerName, 'inbox.md');
-  const base = `Open ${inboxPath}. Follow it and begin the assigned work.`;
+  const base = `打开 ${inboxPath}，按照其中的指示开始工作。`;
   return cliOutputContract ? `${base}\n${cliOutputContract}` : base;
 }
 
@@ -71,9 +71,9 @@ export function generateMailboxTriggerMessage(
   const normalizedCount = Number.isFinite(count) ? Math.max(1, Math.floor(count)) : 1;
   const mailboxPath = buildTeamStateInstructionPath(teamName, teamStateRoot, 'mailbox', `${workerName}.json`);
   if (teamStateRoot !== DEFAULT_INSTRUCTION_STATE_ROOT) {
-    return `${normalizedCount} new msg(s): check ${mailboxPath}, act and report progress.`;
+    return `${normalizedCount} 条新消息：检查 ${mailboxPath}，执行并汇报进展。`;
   }
-  return `${normalizedCount} new msg(s). Read ${mailboxPath}, act now, report concrete progress.`;
+  return `${normalizedCount} 条新消息。读取 ${mailboxPath}，立即执行，汇报具体进展。`;
 }
 
 function agentTypeGuidance(agentType: CliAgentType): string {
@@ -144,7 +144,7 @@ export function generateWorkerOverlay(params: WorkerBootstrapParams): string {
   const claimTaskCommand = formatOmcCliInvocation(`team api claim-task --input "{\\"team_name\\":\\"${teamName}\\",\\"task_id\\":\\"<id>\\",\\"worker\\":\\"${workerName}\\"}" --json`);
   const sendAckCommand = formatOmcCliInvocation(`team api send-message --input "{\\"team_name\\":\\"${teamName}\\",\\"from_worker\\":\\"${workerName}\\",\\"to_worker\\":\\"leader-fixed\\",\\"body\\":\\"ACK: ${workerName} initialized\\"}" --json`);
   const completeTaskCommand = formatOmcCliInvocation(`team api transition-task-status --input "{\\"team_name\\":\\"${teamName}\\",\\"task_id\\":\\"<id>\\",\\"from\\":\\"in_progress\\",\\"to\\":\\"completed\\",\\"claim_token\\":\\"<claim_token>\\",\\"result\\":\\"Summary: <what changed>\\\\nVerification: <tests/checks run>\\\\nSubagent skip reason: worker protocol forbids nested subagents; completed focused probe in-session\\"}" --json`);
-  const failTaskCommand = formatOmcCliInvocation(`team api transition-task-status --input "{\\"team_name\\":\\"${teamName}\\",\\"task_id\\":\\"<id>\\",\\"from\\":\\"in_progress\\",\\"to\\":\\"failed\\",\\"claim_token\\":\\"<claim_token>\\"}" --json`);
+  const failTaskCommand = formatOmcCliInvocation(`team api transition-task-status --input "{\\"team_name\\":\\"${teamName}\\",\\"task_id\\":\\"<id>\\",\\"from\\":\\"in_progress\\",\\"to\\":\\"failed\\",\\"claim_token\\":\\"<claim_token>\\",\\"error\\":\\"<failure reason>\\"}" --json`);
   const readTaskCommand = formatOmcCliInvocation(`team api read-task --input "{\\"team_name\\":\\"${teamName}\\",\\"task_id\\":\\"<id>\\"}" --json`);
   const releaseClaimCommand = formatOmcCliInvocation(`team api release-task-claim --input "{\\"team_name\\":\\"${teamName}\\",\\"task_id\\":\\"<id>\\",\\"claim_token\\":\\"<claim_token>\\",\\"worker\\":\\"${workerName}\\"}" --json`);
   const mailboxListCommand = formatOmcCliInvocation(`team api mailbox-list --input "{\\"team_name\\":\\"${teamName}\\",\\"worker\\":\\"${workerName}\\"}" --json`);

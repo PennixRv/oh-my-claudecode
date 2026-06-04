@@ -830,6 +830,10 @@ export async function executeTeamApiOperation(
         if (transitionError !== undefined && typeof transitionError !== 'string') {
           return { ok: false, operation, error: { code: 'invalid_input', message: 'error must be a string when provided' } };
         }
+        // Fork: failed transition requires error for report persistence
+        if (to === 'failed' && typeof transitionResult !== 'string' && typeof transitionError !== 'string') {
+          return { ok: false, operation, error: { code: 'invalid_input', message: 'error field is required when transitioning to failed (for report persistence)' } };
+        }
         const result = await teamTransitionTaskStatus(
           teamName,
           taskId,
@@ -842,6 +846,28 @@ export async function executeTeamApiOperation(
             error: typeof transitionError === 'string' ? transitionError : undefined,
           },
         );
+        // Fork: persist report on completion
+        if (to === 'completed' || to === 'failed') {
+          const { captureTaskReport } = await import('./report-persistence.js');
+          // Read owner from task JSON
+          let owner = '';
+          try {
+            const { readFile } = await import('fs/promises');
+            const { join } = await import('path');
+            const taskPath = join(cwd, '.omc', 'state', 'team', teamName, 'tasks', `task-${taskId}.json`);
+            const raw = await readFile(taskPath, 'utf-8');
+            const task = JSON.parse(raw);
+            owner = task?.owner ?? '';
+          } catch { /* best-effort */ }
+          captureTaskReport({
+            teamName, taskId,
+            workerName: owner,
+            status: to,
+            result: typeof transitionResult === 'string' ? transitionResult : undefined,
+            error: typeof transitionError === 'string' ? transitionError : undefined,
+            cwd,
+          }).catch(() => { /* non-blocking */ });
+        }
         return { ok: true, operation, data: result as unknown as Record<string, unknown> };
       }
       case 'release-task-claim': {

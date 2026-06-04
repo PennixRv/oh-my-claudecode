@@ -25,7 +25,7 @@ import { getOmcRoot } from '../../lib/worktree-paths.js';
 
 const HELP_TOKENS = new Set(['--help', '-h', 'help']);
 const MIN_WORKER_COUNT = 1;
-const MAX_WORKER_COUNT = 20;
+const MAX_WORKER_COUNT = 5;
 const VALID_TEAM_CLI_AGENT_TYPES = new Set(['claude', 'codex', 'gemini', 'grok']);
 const DEFAULT_TEAM_CLI_AGENT_TYPE: CliAgentType = 'claude';
 
@@ -937,6 +937,10 @@ async function handleTeamApi(args: string[], cwd: string): Promise<void> {
  */
 export async function teamCommand(args: string[]): Promise<void> {
   const cwd = process.cwd();
+  // Fork: cleanup old reports on any team command
+  const { cleanupOldReports } = await import('../../team/report-persistence.js');
+  cleanupOldReports(cwd).catch(() => { /* non-blocking */ });
+
   const [subcommandRaw] = args;
   const subcommand = (subcommandRaw || '').toLowerCase();
 

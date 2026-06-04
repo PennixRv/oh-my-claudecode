@@ -215,7 +215,7 @@ export async function readOmxTeamConfig(teamName: string, cwd: string): Promise<
           task: manifest.task,
           agent_type: manifest.workers?.[0]?.role ?? 'executor',
           worker_count: manifest.worker_count,
-          max_workers: 20,
+          max_workers: 5,
           workers: manifest.workers ?? [],
           created_at: manifest.created_at,
           tmux_session: manifest.tmux_session,

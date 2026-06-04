@@ -442,33 +442,122 @@ function buildV2TaskInstruction(
     `team api transition-task-status --input '${JSON.stringify({ team_name: teamName, task_id: taskId, from: 'in_progress', to: 'completed', claim_token: '<claim_token>', result: 'Summary: <what changed>\\nVerification: <tests/checks run>\\nSubagent skip reason: worker protocol forbids nested subagents; completed focused probe in-session' })}' --json`,
   );
   const failTaskCommand = formatOmcCliInvocation(
-    `team api transition-task-status --input '${JSON.stringify({ team_name: teamName, task_id: taskId, from: 'in_progress', to: 'failed', claim_token: '<claim_token>' })}' --json`,
+    `team api transition-task-status --input '${JSON.stringify({ team_name: teamName, task_id: taskId, from: 'in_progress', to: 'failed', claim_token: '<claim_token>', error: '<failure reason>' })}' --json`,
   );
   return [
-    `## REQUIRED: Task Lifecycle Commands`,
-    `You MUST run these commands. Do NOT skip any step.`,
+    `## 任务生命周期命令（必须执行）`,
+    `必须依次执行以下命令，不可跳过任何步骤。`,
     ``,
-    `1. Claim your task:`,
+    `1. 认领任务：`,
     `   ${claimTaskCommand}`,
-    `   Save the claim_token from the response.`,
-    `2. Do the work described below.`,
-    `3. On completion (use claim_token from step 1):`,
+    `   保存返回的 claim_token，后续步骤需要。`,
+    `2. 执行下方描述的工作。`,
+    `3. 标记完成（使用步骤 1 的 claim_token）：`,
     `   ${completeTaskCommand}`,
-    `   The result field is required for completion evidence. For broad delegated tasks, include either "Subagent skip reason: <why no nested worker was needed/allowed>" or, only when explicitly allowed by the leader, "Subagent spawn evidence: <child task names/thread ids and integrated findings>".`,
-    `4. On failure (use claim_token from step 1):`,
+    `   result 字段必须包含完成证据。对委托类任务，须包含 "Subagent skip reason: worker 协议禁止嵌套子代理，所有工作在当前 session 内完成" 或（leader 明确允许时）"Subagent spawn evidence: <子任务名称/线程 ID 和整合结果>"。`,
+    `4. 标记失败（使用步骤 1 的 claim_token）：`,
     `   ${failTaskCommand}`,
-    `5. ACK/progress replies are not a stop signal. Keep executing your assigned or next feasible work until the task is actually complete or failed, then transition and exit.`,
+    `   ⚠️ 注意：--input JSON 中必须包含 "error" 字段（例如 "error":"<失败原因>"），否则报告无法被持久化。`,
+    `5. ACK/进度回复不是停止信号。继续执行直到任务真正完成或失败，然后 transition 再退出。`,
     ``,
-    `## Task Assignment`,
+    `## 任务分配`,
     `Task ID: ${taskId}`,
     `Worker: ${workerName}`,
     `Subject: ${task.subject}`,
     ``,
     task.description,
     ``,
-    `REMINDER: You MUST run transition-task-status before exiting. Do NOT write done.json or edit task files directly.`,
+    `提醒：退出前必须执行 transition-task-status。不要直接编辑 done.json 或任务文件。`,
     ...(cliOutputContract ? [cliOutputContract] : []),
   ].join('\n');
+}
+
+/**
+ * Generate role-specific preface for worker inbox.
+ * Prioritizes canonical role, falls back to provider-based default.
+ */
+function generateRolePreface(agentType: CliAgentType, role?: string | null): string {
+  // Canonical role overrides provider-based default
+  const normalizedRole = (role || '').toLowerCase();
+  if (normalizedRole === 'code-reviewer' || normalizedRole === 'codex-code-reviewer') {
+    return `<!-- omc-role-preface: code-reviewer -->
+
+## 角色定位
+
+你是 **独立代码审查 worker**。你的职责是发现代码缺陷、安全漏洞、性能问题和逻辑错误。
+
+- findings > 证据 > 验证方式 > 风险列表
+- 不要因为 leader 已有倾向就放弃反驳
+- 输出格式：严重度/文件/行号/问题描述/修复建议
+
+---
+
+`;
+  }
+  if (normalizedRole === 'security-reviewer') {
+    return `<!-- omc-role-preface: security-reviewer -->
+
+## 角色定位
+
+你是 **安全审查 worker**。你的职责是发现安全漏洞、攻击面和合规问题。
+
+- OWASP Top 10 / CWE 覆盖
+- 每个 finding 需标注利用难度和影响范围
+- 输出格式：严重度/CVE映射/文件/行号/修复方案
+
+---
+
+`;
+  }
+  if (normalizedRole === 'critic') {
+    return `<!-- omc-role-preface: critic -->
+
+## 角色定位
+
+你是 **独立挑战者 worker**。你的职责是质疑现有方案、指出边界条件、提出替代路径。
+
+- 对每个结论提出至少一个反例
+- 不要因 leader 已有倾向就放弃反驳
+- 输出格式：假设/反例/风险评估/替代方案
+
+---
+
+`;
+  }
+
+  // Provider-based defaults (no canonical role)
+  const codexPreface = `<!-- omc-role-preface: codex default -->
+
+## 角色定位
+
+你是 **默认主力 worker**（GPT-5.4/Codex）。omc team 未指定模型时默认使用你。覆盖场景：研究分析、代码审查、安全审计、架构设计、Shell/CLI 自动化、代码撰写。
+
+- 审查/审计：findings > 证据 > 验证方式 > 风险列表
+- 架构/设计：指出反例和边界条件，不要因 leader 已有倾向就放弃反驳
+- 实现任务：先验证前提假设再动手
+- 你的价值在于独立判断——与 leader（DSv4）形成异构视角互补
+
+---
+
+`;
+  const claudePreface = `<!-- omc-role-preface: claude specialist -->
+
+## 角色定位
+
+你是 **专长补充 worker**（DSv4/Claude）。仅在以下场景使用：中文文档撰写、1M 长上下文搜索/预扫、与 codex 配对的异构交叉验证、用户明确指定。
+
+- 中文输出优先
+- 长上下文任务利用 1M 窗口优势
+- 交叉验证时从不同视角审视 codex 的结论
+
+---
+
+`;
+  switch (agentType) {
+    case 'codex': return codexPreface;
+    case 'claude': return claudePreface;
+    default: return '';
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -636,9 +725,9 @@ async function spawnV2Worker(opts: SpawnV2WorkerOptions): Promise<SpawnV2WorkerR
     : undefined;
 
   // Build v2 task instruction (CLI API, NO done.json)
-  const instruction = buildV2TaskInstruction(
+  const instruction = `${generateRolePreface(opts.agentType, opts.role)}${buildV2TaskInstruction(
     opts.teamName, opts.workerName, opts.task, opts.taskId, cliOutputContract,
-  );
+  )}`;
   const instructionStateRoot = opts.worktreePath ? '$OMC_TEAM_STATE_ROOT' : undefined;
   const inboxTriggerMessage = generateTriggerMessage(opts.teamName, opts.workerName, instructionStateRoot);
   const promptModeStartupPrompt = generatePromptModeStartupPrompt(
@@ -1140,7 +1229,7 @@ export async function startTeamV2(config: StartTeamV2Config): Promise<TeamRuntim
     policy: DEFAULT_TEAM_TRANSPORT_POLICY,
     governance: DEFAULT_TEAM_GOVERNANCE,
     worker_count: config.workerCount,
-    max_workers: 20,
+    max_workers: 5,
     workers: workersInfo,
     created_at: new Date().toISOString(),
     tmux_session: sessionName,
@@ -1691,6 +1780,19 @@ export async function processCliWorkerVerdicts(
       reason: `cli_worker_verdict:${payload.verdict}`,
     }, cwd).catch(logEventFailure);
 
+    // Fork: persist verdict-based report
+    const { captureTaskReport: captureVerdictReport } = await import('./report-persistence.js');
+    captureVerdictReport({
+      teamName: sanitized,
+      taskId: targetTaskId,
+      workerName: worker.name,
+      status: terminalStatus,
+      result: payload.summary
+        ? `${payload.verdict.toUpperCase()} (${payload.role ?? 'reviewer'}): ${payload.summary}${payload.findings ? '\n\nFindings:\n' + payload.findings : ''}`
+        : undefined,
+      cwd,
+    }).catch(() => { /* non-blocking */ });
+
     try {
       await rename(outputFile, outputFile + '.processed');
     } catch {
@@ -1952,7 +2054,7 @@ export async function shutdownTeamV2(
   );
   const force = options.force === true;
   const ralph = options.ralph === true;
-  const timeoutMs = options.timeoutMs ?? 15_000;
+  const timeoutMs = options.timeoutMs ?? 3_000;
   const sanitized = sanitizeTeamName(teamName);
   const config = await readTeamConfig(sanitized, cwd);
 
