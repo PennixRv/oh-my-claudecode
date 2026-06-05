@@ -16571,32 +16571,27 @@ function processSubagentStop(input) {
         state.agents = state.agents.filter((a) => !toRemove.has(a.agent_id));
       }
       writeTrackingState(input.cwd, state, sessionId);
-      try {
-        const trackedAgent = agentIndex !== -1 ? state.agents[agentIndex] : void 0;
-        const agentType = trackedAgent?.agent_type || input.agent_type || "unknown";
-        recordAgentStop(input.cwd, input.session_id, input.agent_id, agentType, succeeded, trackedAgent?.duration_ms);
-      } catch {
+      if (input.agent_id) {
+        try {
+          const trackedAgent = agentIndex !== -1 ? state.agents[agentIndex] : void 0;
+          const agentType = trackedAgent?.agent_type || input.agent_type || "unknown";
+          recordAgentStop(input.cwd, input.session_id, input.agent_id, agentType, succeeded, trackedAgent?.duration_ms);
+        } catch {
+        }
+        try {
+          recordMissionAgentStop(input.cwd, {
+            sessionId: input.session_id,
+            agentId: input.agent_id,
+            success: succeeded,
+            outputSummary: agentIndex !== -1 ? state.agents[agentIndex]?.output_summary : input.output,
+            at: agentIndex !== -1 ? state.agents[agentIndex]?.completed_at : (/* @__PURE__ */ new Date()).toISOString()
+          }, sessionId);
+        } catch {
+        }
       }
-      try {
-        recordMissionAgentStop(input.cwd, {
-          sessionId: input.session_id,
-          agentId: input.agent_id,
-          success: succeeded,
-          outputSummary: agentIndex !== -1 ? state.agents[agentIndex]?.output_summary : input.output,
-          at: agentIndex !== -1 ? state.agents[agentIndex]?.completed_at : (/* @__PURE__ */ new Date()).toISOString()
-        }, sessionId);
-      } catch {
-      }
-      const runningCount = state.agents.filter(
-        (a) => a.status === "running"
-      ).length;
       return {
         continue: true,
-        hookSpecificOutput: {
-          hookEventName: "SubagentStop",
-          additionalContext: `Agent ${input.agent_type} ${succeeded ? "completed" : "failed"} (${input.agent_id})`,
-          agent_count: runningCount
-        }
+        suppressOutput: true
       };
     }, LOCK_OPTS);
   } catch {
@@ -27253,6 +27248,130 @@ var init_template_engine = __esm({
 });
 
 // src/notifications/dispatcher.ts
+function firstEnvValue(names) {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value) return value;
+  }
+  return void 0;
+}
+function normalizeNoProxyEntry(entry) {
+  if (!entry.startsWith("http://") && !entry.startsWith("https://")) {
+    return entry;
+  }
+  try {
+    return new URL(entry).host.toLowerCase();
+  } catch {
+    return entry;
+  }
+}
+function shouldBypassProxy(hostname4, port) {
+  const noProxy = firstEnvValue(["NO_PROXY", "no_proxy"]);
+  if (!noProxy) return false;
+  const host = hostname4.toLowerCase();
+  const hostWithPort = `${host}:${port}`;
+  return noProxy.split(",").some((rawEntry) => {
+    const entry = rawEntry.trim().toLowerCase();
+    if (!entry) return false;
+    if (entry === "*") return true;
+    const normalizedEntry = normalizeNoProxyEntry(entry);
+    const entryHost = normalizedEntry.startsWith(".") ? normalizedEntry.slice(1) : normalizedEntry.split(":")[0];
+    return host === normalizedEntry || hostWithPort === normalizedEntry || host === entryHost || host.endsWith(`.${entryHost}`);
+  });
+}
+function getTelegramProxyUrl() {
+  if (shouldBypassProxy(TELEGRAM_API_HOST, TELEGRAM_API_PORT)) return void 0;
+  const proxy = firstEnvValue([
+    "HTTPS_PROXY",
+    "https_proxy",
+    "HTTP_PROXY",
+    "http_proxy"
+  ]);
+  if (!proxy) return void 0;
+  try {
+    return new URL(proxy);
+  } catch {
+    return void 0;
+  }
+}
+function createTelegramProxyConnection(proxyUrl) {
+  return ((_options, callback) => {
+    const proxyHost = proxyUrl.hostname;
+    const proxyPort = Number(
+      proxyUrl.port || (proxyUrl.protocol === "https:" ? 443 : 80)
+    );
+    const connectSocket = proxyUrl.protocol === "https:" ? (0, import_tls.connect)({ host: proxyHost, port: proxyPort, servername: proxyHost }) : (0, import_net.connect)({ host: proxyHost, port: proxyPort });
+    let tlsSocket;
+    let settled = false;
+    const handshakeTimer = setTimeout(() => {
+      fail(new Error("Proxy CONNECT timeout"));
+    }, SEND_TIMEOUT_MS);
+    const fail = (error2) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(handshakeTimer);
+      connectSocket.destroy();
+      tlsSocket?.destroy();
+      callback(error2);
+    };
+    connectSocket.once("error", fail);
+    connectSocket.once(proxyUrl.protocol === "https:" ? "secureConnect" : "connect", () => {
+      const auth = proxyUrl.username || proxyUrl.password ? `Proxy-Authorization: Basic ${Buffer.from(
+        `${decodeURIComponent(proxyUrl.username)}:${decodeURIComponent(proxyUrl.password)}`
+      ).toString("base64")}\r
+` : "";
+      connectSocket.write(
+        `CONNECT ${TELEGRAM_API_HOST}:${TELEGRAM_API_PORT} HTTP/1.1\r
+Host: ${TELEGRAM_API_HOST}:${TELEGRAM_API_PORT}\r
+` + auth + "Connection: close\r\n\r\n"
+      );
+    });
+    let response = Buffer.alloc(0);
+    connectSocket.on("data", (chunk) => {
+      response = Buffer.concat([response, chunk]);
+      const headerEnd = response.indexOf("\r\n\r\n");
+      if (headerEnd === -1) return;
+      const statusLine = response.toString("ascii", 0, headerEnd).split("\r\n")[0] || "";
+      const status = /^HTTP\/\d(?:\.\d)?\s+(\d{3})/.exec(statusLine)?.[1];
+      if (!status || !status.startsWith("2")) {
+        fail(new Error(`Proxy CONNECT failed: ${status || "unknown"}`));
+        return;
+      }
+      connectSocket.removeAllListeners("data");
+      connectSocket.removeListener("error", fail);
+      tlsSocket = (0, import_tls.connect)(
+        { socket: connectSocket, servername: TELEGRAM_API_HOST },
+        () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(handshakeTimer);
+          callback(null, tlsSocket);
+        }
+      );
+      tlsSocket.once("error", fail);
+    });
+    return void 0;
+  });
+}
+function telegramRequestOptions(bodyLength, botToken) {
+  const options = {
+    hostname: TELEGRAM_API_HOST,
+    path: `/bot${botToken}/sendMessage`,
+    method: "POST",
+    family: 4,
+    // Force IPv4 - fetch/undici has IPv6 issues on some systems
+    headers: {
+      "Content-Type": "application/json",
+      "Content-Length": bodyLength
+    },
+    timeout: SEND_TIMEOUT_MS
+  };
+  const proxyUrl = getTelegramProxyUrl();
+  if (proxyUrl) {
+    options.createConnection = createTelegramProxyConnection(proxyUrl);
+  }
+  return options;
+}
 function composeDiscordContent(message, mention) {
   const mentionParsed = parseMentionAllowedMentions(mention);
   const allowed_mentions = {
@@ -27417,18 +27536,7 @@ async function sendTelegram2(config2, payload) {
     });
     const result = await new Promise((resolve23) => {
       const req = (0, import_https2.request)(
-        {
-          hostname: "api.telegram.org",
-          path: `/bot${config2.botToken}/sendMessage`,
-          method: "POST",
-          family: 4,
-          // Force IPv4 - fetch/undici has IPv6 issues on some systems
-          headers: {
-            "Content-Type": "application/json",
-            "Content-Length": Buffer.byteLength(body)
-          },
-          timeout: SEND_TIMEOUT_MS
-        },
+        telegramRequestOptions(Buffer.byteLength(body), config2.botToken),
         (res) => {
           const chunks = [];
           res.on("data", (chunk) => chunks.push(chunk));
@@ -27739,11 +27847,13 @@ async function dispatchNotifications(config2, event, payload, platformMessages) 
     if (timer) clearTimeout(timer);
   }
 }
-var import_https2, import_child_process21, import_util8, SEND_TIMEOUT_MS, DISPATCH_TIMEOUT_MS, DISCORD_MAX_CONTENT_LENGTH, execFileAsync4;
+var import_https2, import_net, import_tls, import_child_process21, import_util8, SEND_TIMEOUT_MS, DISPATCH_TIMEOUT_MS, DISCORD_MAX_CONTENT_LENGTH, TELEGRAM_API_HOST, TELEGRAM_API_PORT, execFileAsync4;
 var init_dispatcher2 = __esm({
   "src/notifications/dispatcher.ts"() {
     "use strict";
     import_https2 = require("https");
+    import_net = require("net");
+    import_tls = require("tls");
     init_config();
     import_child_process21 = require("child_process");
     import_util8 = require("util");
@@ -27752,6 +27862,8 @@ var init_dispatcher2 = __esm({
     SEND_TIMEOUT_MS = 1e4;
     DISPATCH_TIMEOUT_MS = 15e3;
     DISCORD_MAX_CONTENT_LENGTH = 2e3;
+    TELEGRAM_API_HOST = "api.telegram.org";
+    TELEGRAM_API_PORT = 443;
     execFileAsync4 = (0, import_util8.promisify)(import_child_process21.execFile);
   }
 });
