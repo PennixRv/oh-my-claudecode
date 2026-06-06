@@ -8499,7 +8499,7 @@ async function spawnV2Worker(opts) {
       startupFailureReason: dispatchOutcome.reason
     };
   }
-  if (opts.agentType === "claude") {
+  if (opts.agentType === "claude" || opts.agentType === "codex") {
     let settled = await waitForWorkerStartupEvidence(
       opts.teamName,
       opts.workerName,
@@ -8507,7 +8507,8 @@ async function spawnV2Worker(opts) {
       opts.cwd,
       6
     );
-    for (let attempt = 1; !settled && attempt <= 4; attempt++) {
+    const maxRetries = opts.agentType === "codex" ? 8 : 4;
+    for (let attempt = 1; !settled && attempt <= maxRetries; attempt++) {
       try {
         await sendTeamPaneKey(paneId, "Enter");
       } catch {
@@ -8518,14 +8519,14 @@ async function spawnV2Worker(opts) {
         opts.workerName,
         opts.taskId,
         opts.cwd,
-        12
+        opts.agentType === "codex" ? 20 : 12
       );
     }
     if (!settled) {
       return {
         paneId,
         startupAssigned: false,
-        startupFailureReason: "claude_startup_evidence_missing"
+        startupFailureReason: `${opts.agentType}_startup_evidence_missing`
       };
     }
   }
