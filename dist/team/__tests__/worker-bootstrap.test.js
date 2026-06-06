@@ -82,7 +82,7 @@ describe('worker-bootstrap', () => {
         it('uses a short prompt-mode startup pointer instead of lifecycle/task text', () => {
             const prompt = generatePromptModeStartupPrompt('test-team', 'worker-1');
             expect(prompt).toContain('.omc/state/team/test-team/workers/worker-1/inbox.md');
-            expect(prompt).toContain('Open');
+            expect(prompt).toContain('打开');
             expect(prompt).not.toContain('claim-task');
             expect(prompt).not.toContain('transition-task-status');
             expect(prompt).not.toContain('blocked');

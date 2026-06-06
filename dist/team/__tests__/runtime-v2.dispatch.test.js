@@ -199,12 +199,12 @@ describe('runtime v2 startup inbox dispatch', () => {
         expect(requests[0]?.inbox_correlation_key).toBe('startup:worker-1:1');
         expect(requests[0]?.trigger_message).toContain('.omc/state/team/dispatch-team/workers/worker-1/inbox.md');
         expect(requests[0]?.trigger_message).toContain('立即执行');
-        expect(requests[0]?.trigger_message).toContain('concrete progress');
+        expect(requests[0]?.trigger_message).toContain('具体进展');
         const inboxPath = join(cwd, '.omc', 'state', 'team', 'dispatch-team', 'workers', 'worker-1', 'inbox.md');
         const inbox = await readFile(inboxPath, 'utf-8');
         expect(inbox).toContain('Dispatch test');
         expect(inbox).toContain('ACK/progress replies are not a stop signal');
-        expect(mocks.sendToWorker).toHaveBeenCalledWith('dispatch-session', '%2', expect.stringContaining('concrete progress'));
+        expect(mocks.sendToWorker).toHaveBeenCalledWith('dispatch-session', '%2', expect.stringContaining('具体进展'));
         expect(mocks.spawnWorkerInPane).toHaveBeenCalledWith('dispatch-session', '%2', expect.objectContaining({
             envVars: expect.objectContaining({
                 OMC_TEAM_WORKER: 'dispatch-team/worker-1',
