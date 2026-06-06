@@ -119,7 +119,7 @@ describe('team api dispatch-aware messaging', () => {
         const requests = await listDispatchRequests(teamName, cwd, { kind: 'mailbox', to_worker: 'worker-1' });
         expect(requests).toHaveLength(1);
         expect(requests[0]?.trigger_message).toContain('$OMC_TEAM_STATE_ROOT/mailbox/worker-1.json');
-        expect(requests[0]?.trigger_message).toContain('report progress');
+        expect(requests[0]?.trigger_message).toContain('汇报进展');
     });
     it('routes mailbox notifications using config workers when manifest workers are stale', async () => {
         const base = join(cwd, '.omc', 'state', 'team', teamName);

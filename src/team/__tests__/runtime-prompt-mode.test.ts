@@ -175,8 +175,8 @@ describe('spawnWorkerForTask – prompt mode and interactive worker launch', () 
     expect(launchCmd).toContain("'-p'");
     // Should contain the inbox path reference
     expect(launchCmd).toContain('.omc/state/team/test-team/workers/worker-1/inbox.md');
-    expect(launchCmd).toContain('execute now');
-    expect(launchCmd).toContain('concrete progress');
+    expect(launchCmd).toContain('立即执行');
+    expect(launchCmd).toContain('具体进展');
 
     rmSync(cwd, { recursive: true, force: true });
   });
@@ -228,8 +228,8 @@ describe('spawnWorkerForTask – prompt mode and interactive worker launch', () 
     expect(launchCmd).toContain('--dangerously-bypass-approvals-and-sandbox');
     expect(launchCmd).not.toContain("'exec'");
     expect(launchCmd).not.toContain('.omc/state/team/test-team/workers/worker-1/inbox.md');
-    expect(launchCmd).not.toContain('execute now');
-    expect(launchCmd).not.toContain('concrete progress');
+    expect(launchCmd).not.toContain('立即执行');
+    expect(launchCmd).not.toContain('具体进展');
 
     rmSync(cwd, { recursive: true, force: true });
   });
@@ -243,7 +243,7 @@ describe('spawnWorkerForTask – prompt mode and interactive worker launch', () 
       args => args[0] === 'send-keys' && args.includes('-l')
     );
     expect(sendKeysCalls.length).toBe(2);
-    const readInstructionCall = sendKeysCalls.find((args) => (args[args.length - 1] ?? '').includes('execute now'));
+    const readInstructionCall = sendKeysCalls.find((args) => (args[args.length - 1] ?? '').includes('立即执行'));
     expect(readInstructionCall).toBeDefined();
 
     rmSync(cwd, { recursive: true, force: true });
@@ -258,7 +258,7 @@ describe('spawnWorkerForTask – prompt mode and interactive worker launch', () 
     expect(captureCalls.length).toBeGreaterThan(0);
 
     const readInstructionCalls = tmuxCalls.args.filter(
-      args => args[0] === 'send-keys' && args.includes('-l') && (args[args.length - 1] ?? '').includes('execute now')
+      args => args[0] === 'send-keys' && args.includes('-l') && (args[args.length - 1] ?? '').includes('立即执行')
     );
     expect(readInstructionCalls.length).toBe(1);
     expect(tmuxCalls.args).toContainEqual(['set-window-option', '-t', 'test-session:0', 'main-pane-width', '80']);

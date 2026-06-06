@@ -69,7 +69,7 @@ describe('worker-bootstrap', () => {
             expect(generateMailboxTriggerMessage('test-team', 'worker-1', 2, '$OMC_TEAM_STATE_ROOT'))
                 .not.toContain('$OMC_TEAM_STATE_ROOT/team/test-team');
             expect(generateMailboxTriggerMessage('test-team', 'worker-1', 2, '$OMC_TEAM_STATE_ROOT'))
-                .toContain('report progress');
+                .toContain('汇报进展');
         });
         it('renders canonical team-root paths in worktree overlays', () => {
             const overlay = generateWorkerOverlay({ ...baseParams, instructionStateRoot: '$OMC_TEAM_STATE_ROOT' });
