@@ -554,12 +554,13 @@ async function spawnV2Worker(opts) {
     if (opts.agentType === 'claude') {
         let settled = await waitForWorkerStartupEvidence(opts.teamName, opts.workerName, opts.taskId, opts.cwd, 6);
         // Claude Code v2.1.x sometimes swallows the Enter key sent immediately
-        // after a fresh pane reports ready. The sendToWorker settle window
-        // (tmux-session.ts) now covers both Claude and Codex startup. If the
-        // initial submission was still swallowed, resubmit Enter directly.
+        // after a fresh pane reports ready. If the initial submission was
+        // swallowed, clear the input (C-u) and re-send the full trigger message
+        // (text + C-m) — not just Enter, which may also not submit.
         for (let attempt = 1; !settled && attempt <= 4; attempt++) {
             try {
-                await sendTeamPaneKey(paneId, 'Enter');
+                await sendTeamPaneKey(paneId, 'C-u');
+                await sendToWorker(opts.teamName, paneId, inboxTriggerMessage);
             }
             catch {
                 break;
