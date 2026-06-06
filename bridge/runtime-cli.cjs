@@ -8241,6 +8241,8 @@ function buildV2TaskInstruction(teamName, workerName2, task, taskId, cliOutputCo
     ``,
     task.description,
     ``,
+    `\u62A5\u544A\uFF1A\u5982\u9700\u5199\u5165\u62A5\u544A\u6587\u4EF6\uFF0C\u8BF7\u5199\u5165 .omc/reports/ \u76EE\u5F55\u3002\u7981\u6B62\u5199\u5165 team state \u76EE\u5F55\uFF08shutdown \u65F6\u4F1A\u5220\u9664\uFF09\u3002\u62A5\u544A\u7531\u7CFB\u7EDF\u81EA\u52A8\u6355\u83B7\u5230 .omc/reports/auto/ \u5E76\u4FDD\u7559 7 \u5929\u3002`,
+    ``,
     `\u63D0\u9192\uFF1A\u9000\u51FA\u524D\u5FC5\u987B\u6267\u884C transition-task-status\u3002\u4E0D\u8981\u76F4\u63A5\u7F16\u8F91 done.json \u6216\u4EFB\u52A1\u6587\u4EF6\u3002`,
     ...cliOutputContract ? [cliOutputContract] : []
   ].join("\n");

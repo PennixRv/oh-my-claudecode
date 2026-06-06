@@ -467,7 +467,9 @@ function buildV2TaskInstruction(
     ``,
     task.description,
     ``,
-    `提醒：退出前必须执行 transition-task-status。不要直接编辑 done.json 或任务文件。`,
+    `报告：如需写入报告文件，请写入 .omc/reports/ 目录。禁止写入 team state 目录（shutdown 时会删除）。报告由系统自动捕获到 .omc/reports/auto/ 并保留 7 天。`,
+  ``,
+  `提醒：退出前必须执行 transition-task-status。不要直接编辑 done.json 或任务文件。`,
     ...(cliOutputContract ? [cliOutputContract] : []),
   ].join('\n');
 }
