@@ -124,7 +124,7 @@ describe('release generation', () => {
     );
 
     expect(body).toContain('npm install -g oh-my-claude-pennix@4.10.2');
-    expect(body).toContain('https://github.com/Yeachan-Heo/oh-my-claudecode/compare/v4.10.1...v4.10.2');
+    expect(body).toContain('https://github.com/PennixRv/oh-my-claudecode/compare/v4.10.1...v4.10.2');
     expect(body).toContain('@blue-int @DdangJin @Yeachan-Heo');
     expect(body.match(/## Contributors/g)).toHaveLength(1);
   });
