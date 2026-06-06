@@ -1206,7 +1206,9 @@ async function sendToWorker(_sessionName, paneId, message) {
       initialCapture = settledCapture;
     }
     const isStartupInboxTrigger = /(?:^|[\\/])inbox\.md\b/.test(message) || message.includes(".omc/state/team/");
-    if (isStartupInboxTrigger) {
+    const looksLikeCodexPane = /OpenAI Codex\b/i.test(initialCapture);
+    const looksLikeClaudePane = /Claude Code\b/i.test(initialCapture);
+    if (isStartupInboxTrigger && (looksLikeCodexPane || looksLikeClaudePane)) {
       await sleep(300);
       const settledCapture = await waitForReadyPaneCapture(paneId, { timeoutMs: 1500, pollIntervalMs: 200 });
       if (settledCapture) {
@@ -1216,14 +1218,14 @@ async function sendToWorker(_sessionName, paneId, message) {
     const paneBusy = paneHasActiveTask(initialCapture);
     const trustPromptKind = detectPaneTrustPromptKind(initialCapture);
     if (trustPromptKind === "directory") {
-      await sendKey("C-m");
+      await sendKey("Enter");
       await sleep(120);
-      await sendKey("C-m");
+      await sendKey("Enter");
       await sleep(200);
     } else if (trustPromptKind === "codex_hooks") {
       await sendKey("3");
       await sleep(120);
-      await sendKey("C-m");
+      await sendKey("Enter");
       await sleep(200);
     }
     if (isCmuxSurfaceTarget(paneId)) {
@@ -1242,11 +1244,11 @@ async function sendToWorker(_sessionName, paneId, message) {
       if (round === 0 && paneBusy) {
         await sendKey("Tab");
         await sleep(80);
-        await sendKey("C-m");
+        await sendKey("Enter");
       } else {
-        await sendKey("C-m");
+        await sendKey("Enter");
         await sleep(200);
-        await sendKey("C-m");
+        await sendKey("Enter");
       }
       await sleep(140);
       const checkCapture = await capturePaneAsync(paneId);
@@ -1283,9 +1285,9 @@ async function sendToWorker(_sessionName, paneId, message) {
         return false;
       }
       for (let round = 0; round < 4; round++) {
-        await sendKey("C-m");
+        await sendKey("Enter");
         await sleep(180);
-        await sendKey("C-m");
+        await sendKey("Enter");
         await sleep(140);
         const retryCapture = await capturePaneAsync(paneId);
         if (!paneTailContainsLiteralLine(retryCapture, message)) return true;
@@ -1294,9 +1296,9 @@ async function sendToWorker(_sessionName, paneId, message) {
     if (await paneInCopyMode(paneId)) {
       return false;
     }
-    await sendKey("C-m");
+    await sendKey("Enter");
     await sleep(120);
-    await sendKey("C-m");
+    await sendKey("Enter");
     await sleep(140);
     const finalCheckCapture = await capturePaneAsync(paneId);
     if (!finalCheckCapture || finalCheckCapture.trim() === "") {
@@ -8327,7 +8329,7 @@ function generateRolePreface(agentType, role) {
   }
 }
 async function notifyStartupInbox(sessionName2, paneId, message) {
-  const notified = await notifyPaneWithRetry2(sessionName2, paneId, message, 3);
+  const notified = await notifyPaneWithRetry2(sessionName2, paneId, message, 1);
   return notified ? { ok: true, transport: "tmux_send_keys", reason: "worker_pane_notified" } : { ok: false, transport: "tmux_send_keys", reason: "worker_notify_failed" };
 }
 async function notifyPaneWithRetry2(sessionName2, paneId, message, maxAttempts = 6, retryDelayMs = 350) {

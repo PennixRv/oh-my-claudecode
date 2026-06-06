@@ -715,7 +715,7 @@ describe('runtime v2 startup inbox dispatch', () => {
     expect(mocks.sendToWorker).toHaveBeenCalledTimes(3);
   });
 
-  it.skip('requires Claude startup evidence without resending the startup inbox', async () => {
+  it('requires Claude startup evidence without resending the startup inbox', async () => {
     cwd = await mkdtemp(join(tmpdir(), 'omc-runtime-v2-claude-evidence-missing-'));
     const { startTeamV2 } = await import('../runtime-v2.js');
 
@@ -736,7 +736,7 @@ describe('runtime v2 startup inbox dispatch', () => {
     expect(requests[0]?.status).toBe('notified');
   });
 
-  it.skip('does not treat ACK-only mailbox replies as Claude startup evidence or resend the startup inbox', async () => {
+  it('does not treat ACK-only mailbox replies as Claude startup evidence or resend the startup inbox', async () => {
     cwd = await mkdtemp(join(tmpdir(), 'omc-runtime-v2-claude-evidence-ack-'));
 
     mocks.sendToWorker.mockImplementation(async () => {

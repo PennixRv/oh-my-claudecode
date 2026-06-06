@@ -1155,11 +1155,12 @@ export async function sendToWorker(
       initialCapture = settledCapture;
     }
     const isStartupInboxTrigger = /(?:^|[\\/])inbox\.md\b/.test(message) || message.includes('.omc/state/team/');
-    if (isStartupInboxTrigger) {
+    const looksLikeCodexPane = /OpenAI Codex\b/i.test(initialCapture);
+    const looksLikeClaudePane = /Claude Code\b/i.test(initialCapture);
+    if (isStartupInboxTrigger && (looksLikeCodexPane || looksLikeClaudePane)) {
       // Freshly respawned panes can show a prompt before the TUI has fully
-      // rebound input handlers. Claude's tail often only shows '❯' + status
-      // line without the 'Claude Code' banner, so we settle unconditionally
-      // for ALL startup inbox triggers — matching the old wrapper's delay.
+      // rebound input handlers. Give a short settle window before the first
+      // inbox injection, matching the old wrapper's delayed dispatch.
       await sleep(300);
       const settledCapture = await waitForReadyPaneCapture(paneId, { timeoutMs: 1_500, pollIntervalMs: 200 });
       if (settledCapture) {
@@ -1170,9 +1171,9 @@ export async function sendToWorker(
 
     const trustPromptKind = detectPaneTrustPromptKind(initialCapture);
     if (trustPromptKind === 'directory') {
-      await sendKey('C-m');
+      await sendKey('Enter');
       await sleep(120);
-      await sendKey('C-m');
+      await sendKey('Enter');
       await sleep(200);
     } else if (trustPromptKind === 'codex_hooks') {
       // Codex CLI 0.133+ may block on a hook-trust menu. Do not choose
@@ -1180,7 +1181,7 @@ export async function sendToWorker(
       // so non-interactive team workers can bootstrap without widening trust.
       await sendKey('3');
       await sleep(120);
-      await sendKey('C-m');
+      await sendKey('Enter');
       await sleep(200);
     }
 
@@ -1206,11 +1207,11 @@ export async function sendToWorker(
       if (round === 0 && paneBusy) {
         await sendKey('Tab');
         await sleep(80);
-        await sendKey('C-m');
+        await sendKey('Enter');
       } else {
-        await sendKey('C-m');
+        await sendKey('Enter');
         await sleep(200);
-        await sendKey('C-m');
+        await sendKey('Enter');
       }
       await sleep(140);
 
@@ -1254,9 +1255,9 @@ export async function sendToWorker(
         return false;
       }
       for (let round = 0; round < 4; round++) {
-        await sendKey('C-m');
+        await sendKey('Enter');
         await sleep(180);
-        await sendKey('C-m');
+        await sendKey('Enter');
         await sleep(140);
 
         const retryCapture = await capturePaneAsync(paneId);
@@ -1271,9 +1272,9 @@ export async function sendToWorker(
 
     // Fail-closed: one final submit attempt, then report failure so
     // callers can surface startup dispatch problems explicitly.
-    await sendKey('C-m');
+    await sendKey('Enter');
     await sleep(120);
-    await sendKey('C-m');
+    await sendKey('Enter');
     await sleep(140);
     const finalCheckCapture = await capturePaneAsync(paneId);
     // Empty capture means tmux capture failed or returned indeterminate output.
