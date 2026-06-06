@@ -17873,6 +17873,7 @@ var import_promises3 = require("fs/promises");
 var import_fs2 = require("fs");
 var import_crypto2 = require("crypto");
 var import_child_process3 = require("child_process");
+var import_os3 = require("os");
 var import_util6 = require("util");
 var import_path4 = require("path");
 var import_promises = __toESM(require("fs/promises"), 1);
@@ -19527,21 +19528,21 @@ function clearScopedTeamState(job) {
 // src/utils/paths.ts
 var import_path9 = require("path");
 var import_fs8 = require("fs");
-var import_os3 = require("os");
+var import_os4 = require("os");
 function getStateDir() {
   if (process.platform === "win32") {
-    return process.env.LOCALAPPDATA || (0, import_path9.join)((0, import_os3.homedir)(), "AppData", "Local");
+    return process.env.LOCALAPPDATA || (0, import_path9.join)((0, import_os4.homedir)(), "AppData", "Local");
   }
-  return process.env.XDG_STATE_HOME || (0, import_path9.join)((0, import_os3.homedir)(), ".local", "state");
+  return process.env.XDG_STATE_HOME || (0, import_path9.join)((0, import_os4.homedir)(), ".local", "state");
 }
 function prefersXdgOmcDirs() {
   return process.platform !== "win32" && process.platform !== "darwin";
 }
 function getUserHomeDir() {
   if (process.platform === "win32") {
-    return process.env.USERPROFILE || process.env.HOME || (0, import_os3.homedir)();
+    return process.env.USERPROFILE || process.env.HOME || (0, import_os4.homedir)();
   }
-  return process.env.HOME || (0, import_os3.homedir)();
+  return process.env.HOME || (0, import_os4.homedir)();
 }
 function getLegacyOmcDir() {
   return (0, import_path9.join)(getUserHomeDir(), ".omc");

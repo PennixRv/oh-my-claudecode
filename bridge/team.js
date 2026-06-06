@@ -2014,8 +2014,9 @@ __export(tmux_session_exports, {
   waitForPaneReady: () => waitForPaneReady
 });
 import { existsSync as existsSync6 } from "fs";
-import { createHash as createHash2 } from "crypto";
+import { createHash as createHash2, randomBytes } from "crypto";
 import { execFile as execFile2 } from "child_process";
+import { tmpdir } from "os";
 import { promisify as promisify2 } from "util";
 import { join as join8, basename as basename4, isAbsolute as isAbsolute4, win32 } from "path";
 import fs from "fs/promises";
@@ -2605,12 +2606,18 @@ async function spawnWorkerInPane(sessionName2, paneId, config) {
     throw new Error(reason);
   }
   try {
+    const payloadDir = join8(tmpdir(), "omc-bootstrap");
+    await fs.mkdir(payloadDir, { recursive: true });
+    const payloadFile = join8(payloadDir, `payload-${String(paneId).replace(/[^A-Za-z0-9_.-]/g, "_")}-${randomBytes(4).toString("hex")}`);
+    await fs.writeFile(payloadFile, `stty -echo 2>/dev/null; eval exec ${startCmd}
+`, "utf-8");
+    const bootstrapCmd = `source ${payloadFile}`;
     const sendResult = await tmuxExecAsync([
       "send-keys",
       "-t",
       paneId,
       "-l",
-      startCmd
+      bootstrapCmd
     ], { timeout: 5e3 });
     logWorkerSpawnDiagnostic(
       `worker start send-keys literal session=${sessionName2} pane=${paneId} worker=${config.workerName} cmdSha=${fingerprint} sendStatus=0 stderr=${JSON.stringify(sendResult.stderr.trim())}`

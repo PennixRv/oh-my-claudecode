@@ -6,8 +6,9 @@
  * Sessions are named "omc-team-{teamName}-{workerName}".
  */
 import { existsSync } from 'fs';
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { execFile } from 'child_process';
+import { tmpdir } from 'os';
 import { promisify } from 'util';
 import { join, basename, isAbsolute, win32 } from 'path';
 import fs from 'fs/promises';
@@ -722,9 +723,16 @@ export async function spawnWorkerInPane(sessionName, paneId, config) {
         throw new Error(reason);
     }
     try {
-        // Use -l (literal) flag to prevent tmux key-name parsing of the command string.
+        // Bootstrap: write the long startup command to a temp file, then send a short
+        // `source` command to the pane. This prevents command echo and ensures the worker
+        // process replaces the shell (via exec) so tmux send-keys targets the worker directly.
+        const payloadDir = join(tmpdir(), 'omc-bootstrap');
+        await fs.mkdir(payloadDir, { recursive: true });
+        const payloadFile = join(payloadDir, `payload-${String(paneId).replace(/[^A-Za-z0-9_.-]/g, '_')}-${randomBytes(4).toString('hex')}`);
+        await fs.writeFile(payloadFile, `stty -echo 2>/dev/null; eval exec ${startCmd}\n`, 'utf-8');
+        const bootstrapCmd = `source ${payloadFile}`;
         const sendResult = await tmuxExecAsync([
-            'send-keys', '-t', paneId, '-l', startCmd
+            'send-keys', '-t', paneId, '-l', bootstrapCmd
         ], { timeout: 5000 });
         logWorkerSpawnDiagnostic(`worker start send-keys literal session=${sessionName} pane=${paneId} ` +
             `worker=${config.workerName} cmdSha=${fingerprint} sendStatus=0 stderr=${JSON.stringify(sendResult.stderr.trim())}`);

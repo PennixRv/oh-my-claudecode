@@ -1017,12 +1017,18 @@ async function spawnWorkerInPane(sessionName2, paneId, config) {
     throw new Error(reason);
   }
   try {
+    const payloadDir = (0, import_path9.join)((0, import_os4.tmpdir)(), "omc-bootstrap");
+    await import_promises.default.mkdir(payloadDir, { recursive: true });
+    const payloadFile = (0, import_path9.join)(payloadDir, `payload-${String(paneId).replace(/[^A-Za-z0-9_.-]/g, "_")}-${(0, import_crypto2.randomBytes)(4).toString("hex")}`);
+    await import_promises.default.writeFile(payloadFile, `stty -echo 2>/dev/null; eval exec ${startCmd}
+`, "utf-8");
+    const bootstrapCmd = `source ${payloadFile}`;
     const sendResult = await tmuxExecAsync([
       "send-keys",
       "-t",
       paneId,
       "-l",
-      startCmd
+      bootstrapCmd
     ], { timeout: 5e3 });
     logWorkerSpawnDiagnostic(
       `worker start send-keys literal session=${sessionName2} pane=${paneId} worker=${config.workerName} cmdSha=${fingerprint} sendStatus=0 stderr=${JSON.stringify(sendResult.stderr.trim())}`
@@ -1418,13 +1424,14 @@ async function killTeamSession(sessionName2, workerPaneIds, leaderPaneId, option
   } catch {
   }
 }
-var import_fs6, import_crypto2, import_child_process4, import_util2, import_path9, import_promises, sleep, execFileAsync, TMUX_SESSION_PREFIX, SUPPORTED_POSIX_SHELLS, ZSH_CANDIDATES, BASH_CANDIDATES, DANGEROUS_LAUNCH_BINARY_CHARS;
+var import_fs6, import_crypto2, import_child_process4, import_os4, import_util2, import_path9, import_promises, sleep, execFileAsync, TMUX_SESSION_PREFIX, SUPPORTED_POSIX_SHELLS, ZSH_CANDIDATES, BASH_CANDIDATES, DANGEROUS_LAUNCH_BINARY_CHARS;
 var init_tmux_session = __esm({
   "src/team/tmux-session.ts"() {
     "use strict";
     import_fs6 = require("fs");
     import_crypto2 = require("crypto");
     import_child_process4 = require("child_process");
+    import_os4 = require("os");
     import_util2 = require("util");
     import_path9 = require("path");
     import_promises = __toESM(require("fs/promises"), 1);
@@ -5584,7 +5591,7 @@ function checkCwdParity(claimsCwd, runtimeCwd, mode, policy) {
 }
 
 // src/hooks/factcheck/config.ts
-var import_os4 = require("os");
+var import_os5 = require("os");
 init_config_dir();
 var DEFAULT_FACTCHECK_POLICY = {
   enabled: false,
@@ -5622,7 +5629,7 @@ var DEFAULT_GUARDS_CONFIG = {
   sentinel: { ...DEFAULT_SENTINEL_POLICY }
 };
 function expandTokens(value, workspace) {
-  const home = (0, import_os4.homedir)();
+  const home = (0, import_os5.homedir)();
   const ws = workspace ?? process.env.OMC_WORKSPACE ?? process.cwd();
   return value.replace(/\$\{HOME\}/g, home).replace(/\$\{WORKSPACE\}/g, ws).replace(/\$\{CLAUDE_CONFIG_DIR\}/g, getClaudeConfigDir());
 }
