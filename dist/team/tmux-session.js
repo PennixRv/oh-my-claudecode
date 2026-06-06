@@ -804,6 +804,24 @@ function detectPaneTrustPromptKind(captured) {
 export function paneHasTrustPrompt(captured) {
     return detectPaneTrustPromptKind(captured) !== null;
 }
+function paneHasCodexStartupBanner(captured) {
+    // Codex CLI startup screen shows placeholder prompts like "Implement {feature}"
+    // or greeting text "Build faster with Codex" before it's ready for input.
+    // Returning true prevents sendToWorker from sending text to an unready pane.
+    const lines = captured
+        .split('\n')
+        .map((line) => line.replace(/\r/g, '').trim());
+    const startupHits = lines.filter((line) => /^[│╭╰├╰╰─]*\s*(Implement|Describe|Fix|Refactor|Explain|Search|Ask)\s+\{/.test(line)
+        || /\b(Build faster|New to Codex|Tip:)\b/i.test(line));
+    // More than 3 startup-only lines = Codex is still booting
+    if (startupHits.length >= 3)
+        return true;
+    // If pane is almost empty (less than 8 visible lines with content), likely still starting
+    const contentLines = lines.filter((l) => l.length > 0);
+    if (contentLines.length < 8)
+        return true;
+    return false;
+}
 function paneHasClaudeStartupBanner(captured) {
     const lines = captured
         .split('\n')
@@ -948,7 +966,7 @@ export async function sendToWorker(_sessionName, paneId, message) {
         }
         // Check for trust prompt and auto-dismiss before sending our text
         const initialCapture = await capturePaneAsync(paneId);
-        if (paneHasClaudeStartupBanner(initialCapture)) {
+        if (paneHasClaudeStartupBanner(initialCapture) || paneHasCodexStartupBanner(initialCapture)) {
             return false;
         }
         const paneBusy = paneHasActiveTask(initialCapture);
