@@ -26,6 +26,10 @@ vi.mock('child_process', async (importOriginal) => {
         if (args[0] === 'split-window') {
             cb(null, '%42\n', '');
         }
+        else if (args[0] === 'respawn-pane') {
+            tmuxCalls.lastLiteralSend = args[args.length - 1] ?? '';
+            cb(null, '', '');
+        }
         else if (args[0] === 'send-keys' && args.includes('-l')) {
             tmuxCalls.lastLiteralSend = args[args.length - 1] ?? '';
             cb(null, '', '');
@@ -157,7 +161,7 @@ describe('spawnWorkerForTask – prompt mode and interactive worker launch', () 
         const runtime = makeRuntime(cwd, 'gemini');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
         // Find the send-keys call that launches the worker (contains -l flag)
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === "send-keys" && args.includes("-l")) || args[0] === "respawn-pane");
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         // Should contain -p flag for prompt mode
@@ -194,7 +198,7 @@ describe('spawnWorkerForTask – prompt mode and interactive worker launch', () 
         const runtime = makeRuntime(cwd, 'codex');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
         // Find the send-keys call that launches the worker (contains -l flag).
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === "send-keys" && args.includes("-l")) || args[0] === "respawn-pane");
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         expect(launchCmd).toContain('/usr/local/bin/codex');

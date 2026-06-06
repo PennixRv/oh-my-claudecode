@@ -80,8 +80,12 @@ describe('idle detection helpers', () => {
         expect(paneLooksReady('Working on task...')).toBe(false);
     });
     it('paneLooksReady treats bootstrapping panes as not ready even with model hints', () => {
-        expect(paneLooksReady('model: loading\ngpt-5.3-codex high · 80% left')).toBe(false);
-        expect(paneLooksReady('connecting to model...\n❯ ')).toBe(false);
+        // After prompt-fix: model:loading/connecting before a real prompt is stale scrollback,
+        // not bootstrapping. Only loading AFTER the last prompt blocks readiness.
+        expect(paneLooksReady('model: loading\ngpt-5.3-codex high · 80% left')).toBe(true);
+        expect(paneLooksReady('connecting to model...\n❯ ')).toBe(true);
+        // Loading AFTER the prompt still blocks
+        expect(paneLooksReady('❯ \nmodel: loading')).toBe(false);
     });
     it('paneHasActiveTask detects active task indicators', () => {
         expect(paneHasActiveTask(ACTIVE_PANE_CONTENT)).toBe(true);
