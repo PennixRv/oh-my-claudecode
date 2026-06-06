@@ -1103,12 +1103,9 @@ function paneHasTrustPrompt(captured) {
 function paneHasCodexStartupBanner(captured) {
   const lines = captured.split("\n").map((line) => line.replace(/\r/g, "").trim());
   const startupHits = lines.filter(
-    (line) => /^[│╭╰├╰╰─]*\s*(Implement|Describe|Fix|Refactor|Explain|Search|Ask)\s+\{/.test(line) || /\b(Build faster|New to Codex|Tip:)\b/i.test(line)
+    (line) => /^[│╭╰├╰╰─]*\s*(Implement|Describe|Fix|Refactor|Explain|Search|Ask)\s+\{/.test(line) || /\b(Build faster|New to Codex|Tip: New Build faster with Codex)\b/i.test(line)
   );
-  if (startupHits.length >= 3) return true;
-  const contentLines = lines.filter((l) => l.length > 0);
-  if (contentLines.length < 8) return true;
-  return false;
+  return startupHits.length >= 3;
 }
 function paneHasClaudeStartupBanner(captured) {
   const lines = captured.split("\n").map((line) => line.replace(/\r/g, "").trim()).filter((line) => line.length > 0).slice(-20);
