@@ -203,7 +203,7 @@ describe('runtime v2 startup inbox dispatch', () => {
         const inboxPath = join(cwd, '.omc', 'state', 'team', 'dispatch-team', 'workers', 'worker-1', 'inbox.md');
         const inbox = await readFile(inboxPath, 'utf-8');
         expect(inbox).toContain('Dispatch test');
-        expect(inbox).toContain('ACK/progress replies are not a stop signal');
+        expect(inbox).toContain('ACK/进度回复不是停止信号');
         expect(mocks.sendToWorker).toHaveBeenCalledWith('dispatch-session', '%2', expect.stringContaining('具体进展'));
         expect(mocks.spawnWorkerInPane).toHaveBeenCalledWith('dispatch-session', '%2', expect.objectContaining({
             envVars: expect.objectContaining({
