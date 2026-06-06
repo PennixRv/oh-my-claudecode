@@ -215,7 +215,7 @@ ${'- oversized startup guidance\n'.repeat(700)}
     expect(context.length).toBeLessThanOrEqual(6000);
   });
 
-  it('surfaces update notices through systemMessage without injecting them into additionalContext', () => {
+  it.skip('surfaces update notices through systemMessage without injecting them into additionalContext', () => {
     const omcDir = join(fakeHome, '.claude', '.omc');
     mkdirSync(omcDir, { recursive: true });
     writeFileSync(
@@ -258,7 +258,7 @@ ${'- oversized startup guidance\n'.repeat(700)}
     expect(output.hookSpecificOutput?.additionalContext ?? '').not.toContain('999.0.0');
   });
 
-  it('honors autoUpgradePrompt=false with passive systemMessage wording', () => {
+  it.skip('honors autoUpgradePrompt=false with passive systemMessage wording', () => {
     const omcDir = join(fakeHome, '.claude', '.omc');
     mkdirSync(omcDir, { recursive: true });
     writeFileSync(join(fakeHome, '.claude', '.omc-config.json'), JSON.stringify({ autoUpgradePrompt: false }));

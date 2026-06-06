@@ -198,7 +198,7 @@ describe('runtime v2 startup inbox dispatch', () => {
         expect(requests[0]?.fallback_allowed).toBe(true);
         expect(requests[0]?.inbox_correlation_key).toBe('startup:worker-1:1');
         expect(requests[0]?.trigger_message).toContain('.omc/state/team/dispatch-team/workers/worker-1/inbox.md');
-        expect(requests[0]?.trigger_message).toContain('execute now');
+        expect(requests[0]?.trigger_message).toContain('立即执行');
         expect(requests[0]?.trigger_message).toContain('concrete progress');
         const inboxPath = join(cwd, '.omc', 'state', 'team', 'dispatch-team', 'workers', 'worker-1', 'inbox.md');
         const inbox = await readFile(inboxPath, 'utf-8');
@@ -242,7 +242,7 @@ describe('runtime v2 startup inbox dispatch', () => {
         const inbox = await readFile(inboxPath, 'utf-8');
         expect(inbox).toContain('"result"');
         expect(inbox).toContain('Subagent skip reason:');
-        expect(inbox).toContain('only when explicitly allowed by the leader');
+        expect(inbox).toContain('leader 明确允许');
     });
     it('persists runtime-v2 worktree contract fields for split-pane teams', async () => {
         cwd = await mkdtemp(join(tmpdir(), 'omc-runtime-v2-worktree-contract-'));
@@ -781,7 +781,7 @@ describe('runtime v2 startup inbox dispatch', () => {
         });
         expect(modelContractMocks.getPromptModeArgs).toHaveBeenCalledWith('gemini', expect.stringContaining('.omc/state/team/dispatch-team/workers/worker-1/inbox.md'));
         const promptModeInstruction = modelContractMocks.getPromptModeArgs.mock.calls[0]?.[1];
-        expect(promptModeInstruction).toContain('Open .omc/state/team/dispatch-team/workers/worker-1/inbox.md');
+        expect(promptModeInstruction).toContain('打开 .omc/state/team/dispatch-team/workers/worker-1/inbox.md');
         expect(promptModeInstruction).not.toContain('claim-task');
         expect(promptModeInstruction).not.toContain('transition-task-status');
         expect(promptModeInstruction).not.toContain('blocked');
