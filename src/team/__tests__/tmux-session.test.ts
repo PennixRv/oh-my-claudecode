@@ -438,6 +438,31 @@ describe('pane readiness startup banners', () => {
     expect(paneLooksReady('⏵⏵ bypass permissions on (shift+tab to cycle)\nReady\n❯ ')).toBe(true);
   });
 
+  it('does not treat the Codex title banner itself as an idle prompt', () => {
+    const capture = [
+      '╭─────────────────────────────────────────╮',
+      '│ >_ OpenAI Codex (v0.136.0)              │',
+      '│ permissions: YOLO mode                  │',
+      '╰─────────────────────────────────────────╯',
+    ].join('\n');
+
+    expect(paneLooksReady(capture)).toBe(false);
+  });
+
+  it('treats a real Codex prompt as ready even when stale loading text remains above it', () => {
+    const capture = [
+      '╭─────────────────────────────────────────╮',
+      '│ >_ OpenAI Codex (v0.136.0)              │',
+      '│ model:       loading   /model to change │',
+      '│ permissions: YOLO mode                  │',
+      '╰─────────────────────────────────────────╯',
+      '',
+      '› Summarize recent commits',
+    ].join('\n');
+
+    expect(paneLooksReady(capture)).toBe(true);
+  });
+
   it('treats Claude Code v2.1.x idle pane (prompt above persistent mode indicator) as ready', () => {
     // Claude Code v2.1.142 renders the permission-mode indicator
     // ("⏵⏵ bypass permissions on (shift+tab to cycle)") *below* the prompt
@@ -493,6 +518,11 @@ describe('pane readiness startup banners', () => {
 describe('sendToWorker implementation guards', () => {
   const source = readFileSync(join(__dirname, '..', 'tmux-session.ts'), 'utf-8');
 
+  it('launches tmux workers with respawn-pane instead of typing the start command', () => {
+    expect(source).toContain("'respawn-pane', '-k'");
+    expect(source).not.toContain("source ${payloadFile}");
+  });
+
   it('uses a longer default readiness timeout for worker startup', () => {
     expect(source).toContain('OMC_SHELL_READY_TIMEOUT_MS');
     expect(source).toContain('30_000');
@@ -506,6 +536,11 @@ describe('sendToWorker implementation guards', () => {
   it('supports env-gated adaptive interrupt retry', () => {
     expect(source).toContain('OMC_TEAM_AUTO_INTERRUPT_RETRY');
     expect(source).toContain("await sendKey('C-u')");
+  });
+
+  it('requires literal trigger text to appear before submission can count as success', () => {
+    expect(source).toContain('waitForLiteralMessageVisible');
+    expect(source).toContain('if (!sawTypedMessage)');
   });
 
   it('re-checks copy-mode before adaptive and final fallback keys', () => {

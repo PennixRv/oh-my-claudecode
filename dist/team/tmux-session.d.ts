@@ -115,7 +115,7 @@ export declare function shouldAttemptAdaptiveRetry(args: {
  * Send a short trigger message to a worker via tmux send-keys.
  * Uses robust C-m double-press with delays to ensure the message is submitted.
  * Detects and auto-dismisses trust prompts. Handles busy panes with queue semantics.
- * Message must be < 200 chars.
+ * Message must be < 500 chars.
  * Returns false on error (does not throw).
  */
 export declare function sendToWorker(_sessionName: string, paneId: string, message: string): Promise<boolean>;

@@ -17873,7 +17873,6 @@ var import_promises3 = require("fs/promises");
 var import_fs2 = require("fs");
 var import_crypto2 = require("crypto");
 var import_child_process3 = require("child_process");
-var import_os3 = require("os");
 var import_util6 = require("util");
 var import_path4 = require("path");
 var import_promises = __toESM(require("fs/promises"), 1);
@@ -18246,9 +18245,9 @@ function paneHasTrustPrompt(captured) {
 function paneHasCodexStartupBanner(captured) {
   const lines = captured.split("\n").map((line) => line.replace(/\r/g, "").trim());
   const startupHits = lines.filter(
-    (line) => /^[│╭╰├╰╰─]*\s*(Implement|Describe|Fix|Refactor|Explain|Search|Ask)\s+\{/.test(line) || /\b(Build faster|New to Codex|Tip: New Build faster with Codex)\b/i.test(line)
+    (line) => /^[│╭╰├╰╰─]*\s*(Implement|Describe|Fix|Refactor|Explain|Search|Ask)\s+\{/.test(line) || /^\s*(?:[│┃║▌▐▏▕╎┆┊]\s*)?>_\s+OpenAI\s+Codex\b/i.test(line) || /\b(OpenAI Codex|Build faster|New to Codex|Tip: New Build faster with Codex)\b/i.test(line)
   );
-  return startupHits.length >= 3;
+  return startupHits.length >= 1;
 }
 function paneHasClaudeStartupBanner(captured) {
   const lines = captured.split("\n").map((line) => line.replace(/\r/g, "").trim()).filter((line) => line.length > 0).slice(-20);
@@ -18260,9 +18259,13 @@ function paneHasClaudeStartupBanner(captured) {
   return lastStartupBannerIndex >= 0;
 }
 function paneIsBootstrapping(captured) {
-  if (paneHasClaudeStartupBanner(captured)) return true;
   const lines = captured.split("\n").map((line) => line.replace(/\r/g, "").trim()).filter((line) => line.length > 0);
-  return lines.some(
+  const lastPromptIndex = lines.findLastIndex(paneLineLooksLikeIdlePrompt);
+  if (lastPromptIndex < 0 && (paneHasClaudeStartupBanner(captured) || paneHasCodexStartupBanner(captured))) {
+    return true;
+  }
+  const relevantLines = lastPromptIndex >= 0 ? lines.slice(lastPromptIndex + 1) : lines;
+  return relevantLines.some(
     (line) => /\b(loading|initializing|starting up)\b/i.test(line) || /\bmodel:\s*loading\b/i.test(line) || /\bconnecting\s+to\b/i.test(line)
   );
 }
@@ -18276,7 +18279,7 @@ function paneHasActiveTask(captured) {
   return false;
 }
 function paneLineLooksLikeIdlePrompt(line) {
-  return /^\s*(?:[│┃║▌▐▏▕╎┆┊]\s*)?[›>❯]\s*/u.test(line);
+  return /^\s*(?:[│┃║▌▐▏▕╎┆┊]\s*)?[›>❯](?:\s|$)/u.test(line);
 }
 function paneLooksReady(captured) {
   const content = captured.trimEnd();
@@ -18289,9 +18292,34 @@ function paneLooksReady(captured) {
   if (paneLineLooksLikeIdlePrompt(lastLine)) return true;
   return lines.some(paneLineLooksLikeIdlePrompt);
 }
+async function waitForReadyPaneCapture(paneId, opts = {}) {
+  const timeoutMs = Number.isFinite(opts.timeoutMs) && (opts.timeoutMs ?? 0) > 0 ? Number(opts.timeoutMs) : 2e3;
+  const pollIntervalMs = Number.isFinite(opts.pollIntervalMs) && (opts.pollIntervalMs ?? 0) > 0 ? Number(opts.pollIntervalMs) : 250;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const captured = await capturePaneAsync(paneId);
+    if (paneLooksReady(captured) && !paneHasActiveTask(captured)) {
+      return captured;
+    }
+    await sleep(pollIntervalMs);
+  }
+  return null;
+}
 function paneTailContainsLiteralLine(captured, text) {
   const lines = captured.split("\n").filter((l) => l.trim().length > 0).slice(-40);
   return normalizeTmuxCapture(lines.join("\n")).includes(normalizeTmuxCapture(text));
+}
+async function waitForLiteralMessageVisible(paneId, message, attempts = 4, delayMs = 80) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const captured = await capturePaneAsync(paneId);
+    if (paneTailContainsLiteralLine(captured, message)) {
+      return true;
+    }
+    if (attempt < attempts) {
+      await sleep(delayMs);
+    }
+  }
+  return false;
 }
 async function paneInCopyMode(paneId) {
   if (isCmuxSurfaceTarget(paneId)) return false;
@@ -18325,9 +18353,20 @@ async function sendToWorker(_sessionName, paneId, message) {
     if (await paneInCopyMode(paneId)) {
       return false;
     }
-    const initialCapture = await capturePaneAsync(paneId);
-    if (paneHasClaudeStartupBanner(initialCapture) || paneHasCodexStartupBanner(initialCapture)) {
-      return false;
+    let initialCapture = await capturePaneAsync(paneId);
+    if (paneIsBootstrapping(initialCapture)) {
+      const settledCapture = await waitForReadyPaneCapture(paneId);
+      if (!settledCapture) return false;
+      initialCapture = settledCapture;
+    }
+    const isStartupInboxTrigger = /(?:^|[\\/])inbox\.md\b/.test(message) || message.includes(".omc/state/team/");
+    const looksLikeCodexPane = /OpenAI Codex\b/i.test(initialCapture);
+    if (isStartupInboxTrigger && looksLikeCodexPane) {
+      await sleep(300);
+      const settledCapture = await waitForReadyPaneCapture(paneId, { timeoutMs: 1500, pollIntervalMs: 200 });
+      if (settledCapture) {
+        initialCapture = settledCapture;
+      }
     }
     const paneBusy = paneHasActiveTask(initialCapture);
     const trustPromptKind = detectPaneTrustPromptKind(initialCapture);
@@ -18348,6 +18387,10 @@ async function sendToWorker(_sessionName, paneId, message) {
       await tmuxExecAsync(["send-keys", "-t", paneId, "-l", "--", message]);
     }
     await sleep(150);
+    const sawTypedMessage = await waitForLiteralMessageVisible(paneId, message);
+    if (!sawTypedMessage) {
+      return false;
+    }
     const submitRounds = 6;
     for (let round = 0; round < submitRounds; round++) {
       await sleep(100);
@@ -18391,6 +18434,9 @@ async function sendToWorker(_sessionName, paneId, message) {
         await tmuxExecAsync(["send-keys", "-t", paneId, "-l", "--", message]);
       }
       await sleep(120);
+      if (!await waitForLiteralMessageVisible(paneId, message)) {
+        return false;
+      }
       for (let round = 0; round < 4; round++) {
         await sendKey("C-m");
         await sleep(180);
@@ -19528,21 +19574,21 @@ function clearScopedTeamState(job) {
 // src/utils/paths.ts
 var import_path9 = require("path");
 var import_fs8 = require("fs");
-var import_os4 = require("os");
+var import_os3 = require("os");
 function getStateDir() {
   if (process.platform === "win32") {
-    return process.env.LOCALAPPDATA || (0, import_path9.join)((0, import_os4.homedir)(), "AppData", "Local");
+    return process.env.LOCALAPPDATA || (0, import_path9.join)((0, import_os3.homedir)(), "AppData", "Local");
   }
-  return process.env.XDG_STATE_HOME || (0, import_path9.join)((0, import_os4.homedir)(), ".local", "state");
+  return process.env.XDG_STATE_HOME || (0, import_path9.join)((0, import_os3.homedir)(), ".local", "state");
 }
 function prefersXdgOmcDirs() {
   return process.platform !== "win32" && process.platform !== "darwin";
 }
 function getUserHomeDir() {
   if (process.platform === "win32") {
-    return process.env.USERPROFILE || process.env.HOME || (0, import_os4.homedir)();
+    return process.env.USERPROFILE || process.env.HOME || (0, import_os3.homedir)();
   }
-  return process.env.HOME || (0, import_os4.homedir)();
+  return process.env.HOME || (0, import_os3.homedir)();
 }
 function getLegacyOmcDir() {
   return (0, import_path9.join)(getUserHomeDir(), ".omc");

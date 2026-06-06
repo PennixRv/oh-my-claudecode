@@ -8,9 +8,8 @@
  */
 
 import { existsSync } from 'fs';
-import { createHash, randomBytes } from 'crypto';
+import { createHash } from 'crypto';
 import { execFile } from 'child_process';
-import { tmpdir } from 'os';
 import { promisify } from 'util';
 import { join, basename, isAbsolute, win32 } from 'path';
 import fs from 'fs/promises';
@@ -325,19 +324,6 @@ async function waitForShellReady(paneId: string, opts: WaitForShellReadyOptions 
   logWorkerSpawnDiagnostic(
     `worker shell readiness timed out pane=${paneId} timeoutMs=${timeoutMs} lastStatus=${JSON.stringify(lastStatus)}`,
   );
-  return false;
-}
-
-async function verifyWorkerStartCommandDelivered(paneId: string, startCmd: string): Promise<boolean> {
-  if (isCmuxSurfaceTarget(paneId)) return true;
-  const expected = normalizeTmuxCapture(startCmd);
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    const captured = await capturePaneAsync(paneId, { joinWrappedLines: true });
-    if (normalizeTmuxCapture(captured).includes(expected)) {
-      return true;
-    }
-    await sleep(50);
-  }
   return false;
 }
 
@@ -859,48 +845,19 @@ export async function spawnWorkerInPane(
   }
 
   try {
-    // Bootstrap: write the long startup command to a temp file, then send a short
-    // `source` command to the pane. This prevents command echo and ensures the worker
-    // process replaces the shell (via exec) so tmux send-keys targets the worker directly.
-    const payloadDir = join(tmpdir(), 'omc-bootstrap');
-    await fs.mkdir(payloadDir, { recursive: true });
-    const payloadFile = join(payloadDir, `payload-${String(paneId).replace(/[^A-Za-z0-9_.-]/g, '_')}-${randomBytes(4).toString('hex')}`);
-    await fs.writeFile(payloadFile, `stty -echo 2>/dev/null; eval exec ${startCmd}\n`, 'utf-8');
-    const bootstrapCmd = `source ${payloadFile}`;
+    // Start the worker directly in the pane instead of typing a shell command
+    // into an interactive prompt. This avoids command echo and gives the TUI
+    // direct ownership of stdin from the first frame.
     const sendResult = await tmuxExecAsync([
-      'send-keys', '-t', paneId, '-l', bootstrapCmd
+      'respawn-pane', '-k', '-t', paneId, '-c', config.cwd, startCmd,
     ], { timeout: 5000 });
     logWorkerSpawnDiagnostic(
-      `worker start send-keys literal session=${sessionName} pane=${paneId} ` +
+      `worker start respawn-pane session=${sessionName} pane=${paneId} ` +
       `worker=${config.workerName} cmdSha=${fingerprint} sendStatus=0 stderr=${JSON.stringify(sendResult.stderr.trim())}`,
     );
   } catch (error) {
     logWorkerSpawnDiagnostic(
-      `worker start send-keys literal failed session=${sessionName} pane=${paneId} ` +
-      `worker=${config.workerName} cmdSha=${fingerprint} sendStatus=1 error=${JSON.stringify(error instanceof Error ? error.message : String(error))}`,
-    );
-    throw error;
-  }
-
-  const delivered = await verifyWorkerStartCommandDelivered(paneId, startCmd);
-  if (!delivered) {
-    const reason = `worker_start_delivery_unverified:${config.workerName}:${paneId}:${fingerprint}`;
-    logWorkerSpawnDiagnostic(
-      `worker start delivery verification failed session=${sessionName} pane=${paneId} ` +
-      `worker=${config.workerName} cmdSha=${fingerprint} cmdPreview=${JSON.stringify(preview)}`,
-    );
-    throw new Error(reason);
-  }
-
-  try {
-    const enterResult = await tmuxExecAsync(['send-keys', '-t', paneId, 'Enter'], { timeout: 5000 });
-    logWorkerSpawnDiagnostic(
-      `worker start submit sent session=${sessionName} pane=${paneId} ` +
-      `worker=${config.workerName} cmdSha=${fingerprint} sendStatus=0 stderr=${JSON.stringify(enterResult.stderr.trim())}`,
-    );
-  } catch (error) {
-    logWorkerSpawnDiagnostic(
-      `worker start submit failed session=${sessionName} pane=${paneId} ` +
+      `worker start respawn-pane failed session=${sessionName} pane=${paneId} ` +
       `worker=${config.workerName} cmdSha=${fingerprint} sendStatus=1 error=${JSON.stringify(error instanceof Error ? error.message : String(error))}`,
     );
     throw error;
@@ -975,9 +932,10 @@ function paneHasCodexStartupBanner(captured: string): boolean {
   const lines = captured.split('\n').map((line) => line.replace(/\r/g, '').trim());
   const startupHits = lines.filter((line) =>
     /^[│╭╰├╰╰─]*\s*(Implement|Describe|Fix|Refactor|Explain|Search|Ask)\s+\{/.test(line)
-    || /\b(Build faster|New to Codex|Tip: New Build faster with Codex)\b/i.test(line)
+    || /^\s*(?:[│┃║▌▐▏▕╎┆┊]\s*)?>_\s+OpenAI\s+Codex\b/i.test(line)
+    || /\b(OpenAI Codex|Build faster|New to Codex|Tip: New Build faster with Codex)\b/i.test(line)
   );
-  return startupHits.length >= 3;
+  return startupHits.length >= 1;
 }
 
 function paneHasClaudeStartupBanner(captured: string): boolean {
@@ -1002,12 +960,16 @@ function paneHasClaudeStartupBanner(captured: string): boolean {
 }
 
 function paneIsBootstrapping(captured: string): boolean {
-  if (paneHasClaudeStartupBanner(captured)) return true;
   const lines = captured
     .split('\n')
     .map((line) => line.replace(/\r/g, '').trim())
     .filter((line) => line.length > 0);
-  return lines.some((line) =>
+  const lastPromptIndex = lines.findLastIndex(paneLineLooksLikeIdlePrompt);
+  if (lastPromptIndex < 0 && (paneHasClaudeStartupBanner(captured) || paneHasCodexStartupBanner(captured))) {
+    return true;
+  }
+  const relevantLines = lastPromptIndex >= 0 ? lines.slice(lastPromptIndex + 1) : lines;
+  return relevantLines.some((line) =>
     /\b(loading|initializing|starting up)\b/i.test(line)
     || /\bmodel:\s*loading\b/i.test(line)
     || /\bconnecting\s+to\b/i.test(line),
@@ -1029,7 +991,7 @@ function paneLineLooksLikeIdlePrompt(line: string): boolean {
   // (for example "│ ❯"). Treat that as ready while still requiring the prompt
   // glyph to be at the visual start of the line, not embedded in arbitrary
   // output text.
-  return /^\s*(?:[│┃║▌▐▏▕╎┆┊]\s*)?[›>❯]\s*/u.test(line);
+  return /^\s*(?:[│┃║▌▐▏▕╎┆┊]\s*)?[›>❯](?:\s|$)/u.test(line);
 }
 
 export function paneLooksReady(captured: string): boolean {
@@ -1081,6 +1043,27 @@ export async function waitForPaneReady(
   return false;
 }
 
+async function waitForReadyPaneCapture(
+  paneId: string,
+  opts: WaitForPaneReadyOptions = {},
+): Promise<string | null> {
+  const timeoutMs = Number.isFinite(opts.timeoutMs) && (opts.timeoutMs ?? 0) > 0
+    ? Number(opts.timeoutMs)
+    : 2_000;
+  const pollIntervalMs = Number.isFinite(opts.pollIntervalMs) && (opts.pollIntervalMs ?? 0) > 0
+    ? Number(opts.pollIntervalMs)
+    : 250;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const captured = await capturePaneAsync(paneId);
+    if (paneLooksReady(captured) && !paneHasActiveTask(captured)) {
+      return captured;
+    }
+    await sleep(pollIntervalMs);
+  }
+  return null;
+}
+
 function paneTailContainsLiteralLine(captured: string, text: string): boolean {
   // Only check the last 40 lines of the capture, not the full scrollback.
   // After send-keys -l + C-m submission, the trigger text disappears from
@@ -1088,6 +1071,24 @@ function paneTailContainsLiteralLine(captured: string, text: string): boolean {
   // capture would incorrectly report the text as still visible.
   const lines = captured.split('\n').filter((l) => l.trim().length > 0).slice(-40);
   return normalizeTmuxCapture(lines.join('\n')).includes(normalizeTmuxCapture(text));
+}
+
+async function waitForLiteralMessageVisible(
+  paneId: string,
+  message: string,
+  attempts = 4,
+  delayMs = 80,
+): Promise<boolean> {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const captured = await capturePaneAsync(paneId);
+    if (paneTailContainsLiteralLine(captured, message)) {
+      return true;
+    }
+    if (attempt < attempts) {
+      await sleep(delayMs);
+    }
+  }
+  return false;
 }
 
 async function paneInCopyMode(
@@ -1124,7 +1125,7 @@ export function shouldAttemptAdaptiveRetry(args: {
  * Send a short trigger message to a worker via tmux send-keys.
  * Uses robust C-m double-press with delays to ensure the message is submitted.
  * Detects and auto-dismisses trust prompts. Handles busy panes with queue semantics.
- * Message must be < 200 chars.
+ * Message must be < 500 chars.
  * Returns false on error (does not throw).
  */
 export async function sendToWorker(
@@ -1147,9 +1148,23 @@ export async function sendToWorker(
     }
 
     // Check for trust prompt and auto-dismiss before sending our text
-    const initialCapture = await capturePaneAsync(paneId);
-    if (paneHasClaudeStartupBanner(initialCapture) || paneHasCodexStartupBanner(initialCapture)) {
-      return false;
+    let initialCapture = await capturePaneAsync(paneId);
+    if (paneIsBootstrapping(initialCapture)) {
+      const settledCapture = await waitForReadyPaneCapture(paneId);
+      if (!settledCapture) return false;
+      initialCapture = settledCapture;
+    }
+    const isStartupInboxTrigger = /(?:^|[\\/])inbox\.md\b/.test(message) || message.includes('.omc/state/team/');
+    const looksLikeCodexPane = /OpenAI Codex\b/i.test(initialCapture);
+    if (isStartupInboxTrigger && looksLikeCodexPane) {
+      // Codex can show a prompt a fraction before the TUI has fully rebound
+      // input handlers. Give fresh startup panes one short settle window before
+      // the first inbox injection, matching the old wrapper's delayed dispatch.
+      await sleep(300);
+      const settledCapture = await waitForReadyPaneCapture(paneId, { timeoutMs: 1_500, pollIntervalMs: 200 });
+      if (settledCapture) {
+        initialCapture = settledCapture;
+      }
     }
     const paneBusy = paneHasActiveTask(initialCapture);
 
@@ -1178,6 +1193,10 @@ export async function sendToWorker(
 
     // Allow input buffer to settle
     await sleep(150);
+    const sawTypedMessage = await waitForLiteralMessageVisible(paneId, message);
+    if (!sawTypedMessage) {
+      return false;
+    }
 
     // Submit: up to 6 rounds of C-m double-press.
     // For busy panes, first round uses Tab+C-m (queue semantics).
@@ -1231,6 +1250,9 @@ export async function sendToWorker(
         await tmuxExecAsync(['send-keys', '-t', paneId, '-l', '--', message]);
       }
       await sleep(120);
+      if (!await waitForLiteralMessageVisible(paneId, message)) {
+        return false;
+      }
       for (let round = 0; round < 4; round++) {
         await sendKey('C-m');
         await sleep(180);

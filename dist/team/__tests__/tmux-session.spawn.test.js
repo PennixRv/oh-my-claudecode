@@ -3,8 +3,10 @@ const mockedCalls = vi.hoisted(() => ({
     tmuxArgs: [],
     cmuxArgs: [],
     paneCapture: '',
+    captureSequence: [],
     paneStatus: '0 zsh\n',
     echoOnLiteralSend: true,
+    clearLiteralOnSubmit: false,
     wrapLiteralCapture: false,
 }));
 vi.mock('child_process', async (importOriginal) => {
@@ -35,9 +37,12 @@ vi.mock('../../cli/tmux-utils.js', async (importOriginal) => {
         tmuxExecAsync: vi.fn(async (args) => {
             mockedCalls.tmuxArgs.push(args);
             if (args[0] === 'capture-pane') {
-                const stdout = args.includes('-J')
-                    ? mockedCalls.paneCapture.replace(/\n/g, '')
+                const nextCapture = mockedCalls.captureSequence.length > 0
+                    ? mockedCalls.captureSequence.shift() ?? ''
                     : mockedCalls.paneCapture;
+                const stdout = args.includes('-J')
+                    ? nextCapture.replace(/\n/g, '')
+                    : nextCapture;
                 return { stdout, stderr: '' };
             }
             if (args[0] === 'send-keys' && args.includes('-l') && mockedCalls.echoOnLiteralSend) {
@@ -45,6 +50,12 @@ vi.mock('../../cli/tmux-utils.js', async (importOriginal) => {
                 mockedCalls.paneCapture = mockedCalls.wrapLiteralCapture
                     ? `${literal.slice(0, 80)}\n${literal.slice(80)}`
                     : literal;
+            }
+            if (args[0] === 'send-keys' &&
+                !args.includes('-l') &&
+                mockedCalls.clearLiteralOnSubmit &&
+                ['C-m', 'Enter'].includes(args.at(-1) ?? '')) {
+                mockedCalls.paneCapture = '';
             }
             return { stdout: '', stderr: '' };
         }),
@@ -57,18 +68,20 @@ vi.mock('../../cli/tmux-utils.js', async (importOriginal) => {
         }),
     };
 });
-import { sendTeamPaneKey, spawnBridgeInSession, spawnWorkerInPane } from '../tmux-session.js';
+import { sendTeamPaneKey, sendToWorker, spawnBridgeInSession, spawnWorkerInPane } from '../tmux-session.js';
 describe('spawnWorkerInPane', () => {
     beforeEach(() => {
         mockedCalls.tmuxArgs = [];
         mockedCalls.cmuxArgs = [];
         mockedCalls.paneCapture = '';
+        mockedCalls.captureSequence = [];
         mockedCalls.paneStatus = '0 zsh\n';
         mockedCalls.echoOnLiteralSend = true;
+        mockedCalls.clearLiteralOnSubmit = false;
         mockedCalls.wrapLiteralCapture = false;
         vi.unstubAllEnvs();
     });
-    it('uses argv-style launch with literal tmux send-keys', async () => {
+    it('uses argv-style launch with tmux respawn-pane', async () => {
         await spawnWorkerInPane('session:0', '%2', {
             teamName: 'safe-team',
             workerName: 'worker-1',
@@ -80,13 +93,15 @@ describe('spawnWorkerInPane', () => {
             launchArgs: ['--full-auto', '--model', 'gpt-5;touch /tmp/pwn'],
             cwd: '/tmp',
         });
-        const literalSend = mockedCalls.tmuxArgs.find((args) => args[0] === 'send-keys' && args.includes('-l'));
-        expect(literalSend).toBeDefined();
-        const launchLine = literalSend?.[literalSend.length - 1] ?? '';
+        const respawnPane = mockedCalls.tmuxArgs.find((args) => args[0] === 'respawn-pane');
+        expect(respawnPane).toBeDefined();
+        expect(respawnPane).toEqual(expect.arrayContaining(['respawn-pane', '-k', '-t', '%2', '-c', '/tmp']));
+        const launchLine = respawnPane?.[respawnPane.length - 1] ?? '';
         expect(launchLine).toContain('exec "$@"');
         expect(launchLine).toContain("'--'");
         expect(launchLine).toContain("'gpt-5;touch /tmp/pwn'");
         expect(launchLine).not.toContain('exec codex --full-auto');
+        expect(mockedCalls.tmuxArgs.some((args) => args[0] === 'send-keys' && args.includes('-l'))).toBe(false);
     });
     it('sends cmux worker command text and submits with send-key', async () => {
         vi.stubEnv('TMUX', '');
@@ -102,7 +117,7 @@ describe('spawnWorkerInPane', () => {
             launchArgs: ['--full-auto'],
             cwd: '/tmp',
         });
-        expect(mockedCalls.tmuxArgs.some((args) => args[0] === 'send-keys')).toBe(false);
+        expect(mockedCalls.tmuxArgs.some((args) => args[0] === 'respawn-pane')).toBe(false);
         expect(mockedCalls.cmuxArgs).toHaveLength(2);
         expect(mockedCalls.cmuxArgs[0]).toEqual(expect.arrayContaining(['send', '--surface', 'cmux-worker-1']));
         expect(mockedCalls.cmuxArgs[0]?.[0]).toBe('send');
@@ -134,42 +149,7 @@ describe('spawnWorkerInPane', () => {
         expect(launchLine).toContain('--config');
         expect(launchLine).not.toMatch(/^node\s/);
     });
-    it('fails before Enter when tmux does not echo the delivered start command', async () => {
-        mockedCalls.paneCapture = '';
-        mockedCalls.echoOnLiteralSend = false;
-        await expect(spawnWorkerInPane('session:0', '%2', {
-            teamName: 'safe-team',
-            workerName: 'worker-1',
-            envVars: {
-                OMC_TEAM_NAME: 'safe-team',
-                OMC_TEAM_WORKER: 'safe-team/worker-1',
-            },
-            launchBinary: 'codex',
-            launchArgs: ['--full-auto'],
-            cwd: '/tmp',
-        })).rejects.toThrow(/worker_start_delivery_unverified:worker-1:%2:/);
-        const enterSend = mockedCalls.tmuxArgs.find((args) => args[0] === 'send-keys' && args.at(-1) === 'Enter');
-        expect(enterSend).toBeUndefined();
-    });
-    it('verifies wrapped worker start commands with joined tmux capture before Enter', async () => {
-        mockedCalls.wrapLiteralCapture = true;
-        await spawnWorkerInPane('session:0', '%2', {
-            teamName: 'safe-team',
-            workerName: 'worker-1',
-            envVars: {
-                OMC_TEAM_NAME: 'safe-team',
-                OMC_TEAM_WORKER: 'safe-team/worker-1',
-                OMC_TEAM_LONG_VALUE: 'x'.repeat(160),
-            },
-            launchBinary: 'codex',
-            launchArgs: ['--full-auto', '--model', 'gpt-5.5', '--reasoning-effort', 'high'],
-            cwd: '/tmp',
-        });
-        expect(mockedCalls.tmuxArgs).toContainEqual(['capture-pane', '-J', '-t', '%2', '-p', '-S', '-80']);
-        const enterSend = mockedCalls.tmuxArgs.find((args) => args[0] === 'send-keys' && args.at(-1) === 'Enter');
-        expect(enterSend).toBeDefined();
-    });
-    it('fails before send-keys when the target pane shell never becomes ready', async () => {
+    it('fails before respawn-pane when the target pane shell never becomes ready', async () => {
         mockedCalls.paneStatus = '1 zsh\n';
         await expect(spawnWorkerInPane('session:0', '%2', {
             teamName: 'safe-team',
@@ -182,7 +162,7 @@ describe('spawnWorkerInPane', () => {
             launchArgs: ['--full-auto'],
             cwd: '/tmp',
         })).rejects.toThrow(/worker_start_shell_not_ready:worker-1:%2:/);
-        expect(mockedCalls.tmuxArgs.some((args) => args[0] === 'send-keys' && args.includes('-l'))).toBe(false);
+        expect(mockedCalls.tmuxArgs.some((args) => args[0] === 'respawn-pane')).toBe(false);
     });
     it('rejects invalid team names before command construction', async () => {
         await expect(spawnWorkerInPane('session:0', '%2', {
@@ -211,6 +191,15 @@ describe('spawnWorkerInPane', () => {
             launchBinary: 'codex;touch /tmp/pwn',
             cwd: '/tmp',
         })).rejects.toThrow('Invalid launchBinary');
+    });
+    it('returns false when an injected message never becomes visible in the pane', async () => {
+        mockedCalls.echoOnLiteralSend = false;
+        await expect(sendToWorker('session:0', '%2', 'check-inbox')).resolves.toBe(false);
+    });
+    it('returns true only after a visible injected message is submitted', async () => {
+        mockedCalls.clearLiteralOnSubmit = true;
+        await expect(sendToWorker('session:0', '%2', 'check-inbox')).resolves.toBe(true);
+        expect(mockedCalls.tmuxArgs).toContainEqual(['send-keys', '-t', '%2', '-l', '--', 'check-inbox']);
     });
 });
 //# sourceMappingURL=tmux-session.spawn.test.js.map

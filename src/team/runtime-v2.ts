@@ -867,7 +867,7 @@ async function spawnV2Worker(opts: SpawnV2WorkerOptions): Promise<SpawnV2WorkerR
     };
   }
 
-  if (opts.agentType === 'claude' || opts.agentType === 'codex') {
+  if (opts.agentType === 'claude') {
     let settled = await waitForWorkerStartupEvidence(
       opts.teamName,
       opts.workerName,
@@ -875,15 +875,14 @@ async function spawnV2Worker(opts: SpawnV2WorkerOptions): Promise<SpawnV2WorkerR
       opts.cwd,
       6,
     );
-    // Claude Code v2.1.x (and Codex CLI) sometimes swallows the Enter key
-    // sent immediately after a fresh pane reports ready — the TUI is still
-    // binding input handlers, so the dispatch message lands in the input
-    // buffer but is never submitted. By the time the evidence wait above
-    // finishes, the TUI is reliably accepting input. Resubmit Enter directly
-    // (the prompt is still sitting in the input buffer) and re-check
-    // evidence. Bounded retries so a truly hung worker still fails fast.
-    const maxRetries = opts.agentType === 'codex' ? 8 : 4;
-    for (let attempt = 1; !settled && attempt <= maxRetries; attempt++) {
+    // Claude Code v2.1.x sometimes swallows the Enter key sent immediately
+    // after a fresh pane reports ready — the TUI is still binding input
+    // handlers, so the dispatch message lands in the input buffer but is
+    // never submitted. By the time the evidence wait above finishes, the
+    // TUI is reliably accepting input. Resubmit Enter directly (the prompt
+    // is still sitting in the input buffer) and re-check evidence. Bounded
+    // retries so a truly hung worker still fails fast.
+    for (let attempt = 1; !settled && attempt <= 4; attempt++) {
       try {
         await sendTeamPaneKey(paneId, 'Enter');
       } catch {
@@ -894,14 +893,14 @@ async function spawnV2Worker(opts: SpawnV2WorkerOptions): Promise<SpawnV2WorkerR
         opts.workerName,
         opts.taskId,
         opts.cwd,
-        opts.agentType === 'codex' ? 20 : 12,
+        12,
       );
     }
     if (!settled) {
       return {
         paneId,
         startupAssigned: false,
-        startupFailureReason: `${opts.agentType}_startup_evidence_missing`,
+        startupFailureReason: 'claude_startup_evidence_missing',
       };
     }
   }

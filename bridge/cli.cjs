@@ -30167,18 +30167,6 @@ async function waitForShellReady(paneId, opts = {}) {
   );
   return false;
 }
-async function verifyWorkerStartCommandDelivered(paneId, startCmd) {
-  if (isCmuxSurfaceTarget(paneId)) return true;
-  const expected = normalizeTmuxCapture(startCmd);
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    const captured = await capturePaneAsync(paneId, { joinWrappedLines: true });
-    if (normalizeTmuxCapture(captured).includes(expected)) {
-      return true;
-    }
-    await sleep4(50);
-  }
-  return false;
-}
 function escapeForCmdSet2(value) {
   return value.replace(/"/g, '""');
 }
@@ -30565,44 +30553,21 @@ async function spawnWorkerInPane(sessionName2, paneId, config2) {
     throw new Error(reason);
   }
   try {
-    const payloadDir = (0, import_path85.join)((0, import_os13.tmpdir)(), "omc-bootstrap");
-    await import_promises10.default.mkdir(payloadDir, { recursive: true });
-    const payloadFile = (0, import_path85.join)(payloadDir, `payload-${String(paneId).replace(/[^A-Za-z0-9_.-]/g, "_")}-${(0, import_crypto15.randomBytes)(4).toString("hex")}`);
-    await import_promises10.default.writeFile(payloadFile, `stty -echo 2>/dev/null; eval exec ${startCmd}
-`, "utf-8");
-    const bootstrapCmd = `source ${payloadFile}`;
     const sendResult = await tmuxExecAsync([
-      "send-keys",
+      "respawn-pane",
+      "-k",
       "-t",
       paneId,
-      "-l",
-      bootstrapCmd
+      "-c",
+      config2.cwd,
+      startCmd
     ], { timeout: 5e3 });
     logWorkerSpawnDiagnostic(
-      `worker start send-keys literal session=${sessionName2} pane=${paneId} worker=${config2.workerName} cmdSha=${fingerprint} sendStatus=0 stderr=${JSON.stringify(sendResult.stderr.trim())}`
+      `worker start respawn-pane session=${sessionName2} pane=${paneId} worker=${config2.workerName} cmdSha=${fingerprint} sendStatus=0 stderr=${JSON.stringify(sendResult.stderr.trim())}`
     );
   } catch (error2) {
     logWorkerSpawnDiagnostic(
-      `worker start send-keys literal failed session=${sessionName2} pane=${paneId} worker=${config2.workerName} cmdSha=${fingerprint} sendStatus=1 error=${JSON.stringify(error2 instanceof Error ? error2.message : String(error2))}`
-    );
-    throw error2;
-  }
-  const delivered = await verifyWorkerStartCommandDelivered(paneId, startCmd);
-  if (!delivered) {
-    const reason = `worker_start_delivery_unverified:${config2.workerName}:${paneId}:${fingerprint}`;
-    logWorkerSpawnDiagnostic(
-      `worker start delivery verification failed session=${sessionName2} pane=${paneId} worker=${config2.workerName} cmdSha=${fingerprint} cmdPreview=${JSON.stringify(preview)}`
-    );
-    throw new Error(reason);
-  }
-  try {
-    const enterResult = await tmuxExecAsync(["send-keys", "-t", paneId, "Enter"], { timeout: 5e3 });
-    logWorkerSpawnDiagnostic(
-      `worker start submit sent session=${sessionName2} pane=${paneId} worker=${config2.workerName} cmdSha=${fingerprint} sendStatus=0 stderr=${JSON.stringify(enterResult.stderr.trim())}`
-    );
-  } catch (error2) {
-    logWorkerSpawnDiagnostic(
-      `worker start submit failed session=${sessionName2} pane=${paneId} worker=${config2.workerName} cmdSha=${fingerprint} sendStatus=1 error=${JSON.stringify(error2 instanceof Error ? error2.message : String(error2))}`
+      `worker start respawn-pane failed session=${sessionName2} pane=${paneId} worker=${config2.workerName} cmdSha=${fingerprint} sendStatus=1 error=${JSON.stringify(error2 instanceof Error ? error2.message : String(error2))}`
     );
     throw error2;
   }
@@ -30657,9 +30622,9 @@ function paneHasTrustPrompt(captured) {
 function paneHasCodexStartupBanner(captured) {
   const lines = captured.split("\n").map((line) => line.replace(/\r/g, "").trim());
   const startupHits = lines.filter(
-    (line) => /^[│╭╰├╰╰─]*\s*(Implement|Describe|Fix|Refactor|Explain|Search|Ask)\s+\{/.test(line) || /\b(Build faster|New to Codex|Tip: New Build faster with Codex)\b/i.test(line)
+    (line) => /^[│╭╰├╰╰─]*\s*(Implement|Describe|Fix|Refactor|Explain|Search|Ask)\s+\{/.test(line) || /^\s*(?:[│┃║▌▐▏▕╎┆┊]\s*)?>_\s+OpenAI\s+Codex\b/i.test(line) || /\b(OpenAI Codex|Build faster|New to Codex|Tip: New Build faster with Codex)\b/i.test(line)
   );
-  return startupHits.length >= 3;
+  return startupHits.length >= 1;
 }
 function paneHasClaudeStartupBanner(captured) {
   const lines = captured.split("\n").map((line) => line.replace(/\r/g, "").trim()).filter((line) => line.length > 0).slice(-20);
@@ -30671,9 +30636,13 @@ function paneHasClaudeStartupBanner(captured) {
   return lastStartupBannerIndex >= 0;
 }
 function paneIsBootstrapping(captured) {
-  if (paneHasClaudeStartupBanner(captured)) return true;
   const lines = captured.split("\n").map((line) => line.replace(/\r/g, "").trim()).filter((line) => line.length > 0);
-  return lines.some(
+  const lastPromptIndex = lines.findLastIndex(paneLineLooksLikeIdlePrompt);
+  if (lastPromptIndex < 0 && (paneHasClaudeStartupBanner(captured) || paneHasCodexStartupBanner(captured))) {
+    return true;
+  }
+  const relevantLines = lastPromptIndex >= 0 ? lines.slice(lastPromptIndex + 1) : lines;
+  return relevantLines.some(
     (line) => /\b(loading|initializing|starting up)\b/i.test(line) || /\bmodel:\s*loading\b/i.test(line) || /\bconnecting\s+to\b/i.test(line)
   );
 }
@@ -30687,7 +30656,7 @@ function paneHasActiveTask(captured) {
   return false;
 }
 function paneLineLooksLikeIdlePrompt(line) {
-  return /^\s*(?:[│┃║▌▐▏▕╎┆┊]\s*)?[›>❯]\s*/u.test(line);
+  return /^\s*(?:[│┃║▌▐▏▕╎┆┊]\s*)?[›>❯](?:\s|$)/u.test(line);
 }
 function paneLooksReady(captured) {
   const content = captured.trimEnd();
@@ -30717,9 +30686,34 @@ async function waitForPaneReady(paneId, opts = {}) {
   );
   return false;
 }
+async function waitForReadyPaneCapture(paneId, opts = {}) {
+  const timeoutMs = Number.isFinite(opts.timeoutMs) && (opts.timeoutMs ?? 0) > 0 ? Number(opts.timeoutMs) : 2e3;
+  const pollIntervalMs = Number.isFinite(opts.pollIntervalMs) && (opts.pollIntervalMs ?? 0) > 0 ? Number(opts.pollIntervalMs) : 250;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const captured = await capturePaneAsync(paneId);
+    if (paneLooksReady(captured) && !paneHasActiveTask(captured)) {
+      return captured;
+    }
+    await sleep4(pollIntervalMs);
+  }
+  return null;
+}
 function paneTailContainsLiteralLine(captured, text) {
   const lines = captured.split("\n").filter((l) => l.trim().length > 0).slice(-40);
   return normalizeTmuxCapture(lines.join("\n")).includes(normalizeTmuxCapture(text));
+}
+async function waitForLiteralMessageVisible(paneId, message, attempts = 4, delayMs = 80) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const captured = await capturePaneAsync(paneId);
+    if (paneTailContainsLiteralLine(captured, message)) {
+      return true;
+    }
+    if (attempt < attempts) {
+      await sleep4(delayMs);
+    }
+  }
+  return false;
 }
 async function paneInCopyMode(paneId) {
   if (isCmuxSurfaceTarget(paneId)) return false;
@@ -30753,9 +30747,20 @@ async function sendToWorker(_sessionName, paneId, message) {
     if (await paneInCopyMode(paneId)) {
       return false;
     }
-    const initialCapture = await capturePaneAsync(paneId);
-    if (paneHasClaudeStartupBanner(initialCapture) || paneHasCodexStartupBanner(initialCapture)) {
-      return false;
+    let initialCapture = await capturePaneAsync(paneId);
+    if (paneIsBootstrapping(initialCapture)) {
+      const settledCapture = await waitForReadyPaneCapture(paneId);
+      if (!settledCapture) return false;
+      initialCapture = settledCapture;
+    }
+    const isStartupInboxTrigger = /(?:^|[\\/])inbox\.md\b/.test(message) || message.includes(".omc/state/team/");
+    const looksLikeCodexPane = /OpenAI Codex\b/i.test(initialCapture);
+    if (isStartupInboxTrigger && looksLikeCodexPane) {
+      await sleep4(300);
+      const settledCapture = await waitForReadyPaneCapture(paneId, { timeoutMs: 1500, pollIntervalMs: 200 });
+      if (settledCapture) {
+        initialCapture = settledCapture;
+      }
     }
     const paneBusy = paneHasActiveTask(initialCapture);
     const trustPromptKind = detectPaneTrustPromptKind(initialCapture);
@@ -30776,6 +30781,10 @@ async function sendToWorker(_sessionName, paneId, message) {
       await tmuxExecAsync(["send-keys", "-t", paneId, "-l", "--", message]);
     }
     await sleep4(150);
+    const sawTypedMessage = await waitForLiteralMessageVisible(paneId, message);
+    if (!sawTypedMessage) {
+      return false;
+    }
     const submitRounds = 6;
     for (let round = 0; round < submitRounds; round++) {
       await sleep4(100);
@@ -30819,6 +30828,9 @@ async function sendToWorker(_sessionName, paneId, message) {
         await tmuxExecAsync(["send-keys", "-t", paneId, "-l", "--", message]);
       }
       await sleep4(120);
+      if (!await waitForLiteralMessageVisible(paneId, message)) {
+        return false;
+      }
       for (let round = 0; round < 4; round++) {
         await sendKey("C-m");
         await sleep4(180);
@@ -30972,14 +30984,13 @@ async function killTeamSession(sessionName2, workerPaneIds, leaderPaneId, option
   } catch {
   }
 }
-var import_fs68, import_crypto15, import_child_process23, import_os13, import_util9, import_path85, import_promises10, sleep4, execFileAsync5, TMUX_SESSION_PREFIX, SUPPORTED_POSIX_SHELLS, ZSH_CANDIDATES, BASH_CANDIDATES, DANGEROUS_LAUNCH_BINARY_CHARS;
+var import_fs68, import_crypto15, import_child_process23, import_util9, import_path85, import_promises10, sleep4, execFileAsync5, TMUX_SESSION_PREFIX, SUPPORTED_POSIX_SHELLS, ZSH_CANDIDATES, BASH_CANDIDATES, DANGEROUS_LAUNCH_BINARY_CHARS;
 var init_tmux_session = __esm({
   "src/team/tmux-session.ts"() {
     "use strict";
     import_fs68 = require("fs");
     import_crypto15 = require("crypto");
     import_child_process23 = require("child_process");
-    import_os13 = require("os");
     import_util9 = require("util");
     import_path85 = require("path");
     import_promises10 = __toESM(require("fs/promises"), 1);
@@ -34308,7 +34319,7 @@ async function spawnV2Worker(opts) {
       startupFailureReason: dispatchOutcome.reason
     };
   }
-  if (opts.agentType === "claude" || opts.agentType === "codex") {
+  if (opts.agentType === "claude") {
     let settled = await waitForWorkerStartupEvidence(
       opts.teamName,
       opts.workerName,
@@ -34316,8 +34327,7 @@ async function spawnV2Worker(opts) {
       opts.cwd,
       6
     );
-    const maxRetries = opts.agentType === "codex" ? 8 : 4;
-    for (let attempt = 1; !settled && attempt <= maxRetries; attempt++) {
+    for (let attempt = 1; !settled && attempt <= 4; attempt++) {
       try {
         await sendTeamPaneKey(paneId, "Enter");
       } catch {
@@ -34328,14 +34338,14 @@ async function spawnV2Worker(opts) {
         opts.workerName,
         opts.taskId,
         opts.cwd,
-        opts.agentType === "codex" ? 20 : 12
+        12
       );
     }
     if (!settled) {
       return {
         paneId,
         startupAssigned: false,
-        startupFailureReason: `${opts.agentType}_startup_evidence_missing`
+        startupFailureReason: "claude_startup_evidence_missing"
       };
     }
   }
@@ -44074,7 +44084,7 @@ function readKeychainCredentials() {
   const serviceName = getKeychainServiceName();
   const candidateAccounts = [];
   try {
-    const username = (0, import_os19.userInfo)().username?.trim();
+    const username = (0, import_os18.userInfo)().username?.trim();
     if (username) {
       candidateAccounts.push(username);
     }
@@ -44684,7 +44694,7 @@ async function getUsage() {
     return { rateLimits: null, error: "network" };
   }
 }
-var import_fs97, import_path116, import_child_process30, import_crypto20, import_os19, import_https3, CACHE_TTL_FAILURE_MS, CACHE_TTL_TRANSIENT_NETWORK_MS, MAX_RATE_LIMITED_BACKOFF_MS, API_TIMEOUT_MS2, MAX_STALE_DATA_MS, TOKEN_REFRESH_URL_HOSTNAME, USAGE_CACHE_LOCK_OPTS, TOKEN_REFRESH_URL_PATH, DEFAULT_OAUTH_CLIENT_ID, ZAI_UNIT_WEEK;
+var import_fs97, import_path116, import_child_process30, import_crypto20, import_os18, import_https3, CACHE_TTL_FAILURE_MS, CACHE_TTL_TRANSIENT_NETWORK_MS, MAX_RATE_LIMITED_BACKOFF_MS, API_TIMEOUT_MS2, MAX_STALE_DATA_MS, TOKEN_REFRESH_URL_HOSTNAME, USAGE_CACHE_LOCK_OPTS, TOKEN_REFRESH_URL_PATH, DEFAULT_OAUTH_CLIENT_ID, ZAI_UNIT_WEEK;
 var init_usage_api = __esm({
   "src/hud/usage-api.ts"() {
     "use strict";
@@ -44693,7 +44703,7 @@ var init_usage_api = __esm({
     import_path116 = require("path");
     import_child_process30 = require("child_process");
     import_crypto20 = require("crypto");
-    import_os19 = require("os");
+    import_os18 = require("os");
     import_https3 = __toESM(require("https"), 1);
     init_ssrf_guard();
     init_types4();
@@ -87009,9 +87019,9 @@ var CLAUDE_CONFIG_DIR3 = getClaudeConfigDir();
 // src/hooks/comment-checker/index.ts
 var fs13 = __toESM(require("fs"), 1);
 var path17 = __toESM(require("path"), 1);
-var import_os14 = require("os");
+var import_os13 = require("os");
 var DEBUG2 = process.env.COMMENT_CHECKER_DEBUG === "1";
-var DEBUG_FILE = path17.join((0, import_os14.tmpdir)(), "comment-checker-debug.log");
+var DEBUG_FILE = path17.join((0, import_os13.tmpdir)(), "comment-checker-debug.log");
 
 // src/hooks/recovery/context-window.ts
 var fs14 = __toESM(require("fs"), 1);
@@ -87032,14 +87042,14 @@ var DEBUG_FILE2 = (0, import_node_path10.join)((0, import_node_os3.tmpdir)(), "r
 // src/hooks/preemptive-compaction/index.ts
 var fs15 = __toESM(require("fs"), 1);
 var path18 = __toESM(require("path"), 1);
-var import_os15 = require("os");
+var import_os14 = require("os");
 
 // src/hooks/preemptive-compaction/constants.ts
 var CLAUDE_DEFAULT_CONTEXT_LIMIT = process.env.ANTHROPIC_1M_CONTEXT === "true" || process.env.VERTEX_ANTHROPIC_1M_CONTEXT === "true" ? 1e6 : 2e5;
 
 // src/hooks/preemptive-compaction/index.ts
 var DEBUG4 = process.env.PREEMPTIVE_COMPACTION_DEBUG === "1";
-var DEBUG_FILE3 = path18.join((0, import_os15.tmpdir)(), "preemptive-compaction-debug.log");
+var DEBUG_FILE3 = path18.join((0, import_os14.tmpdir)(), "preemptive-compaction-debug.log");
 
 // src/features/background-agent/manager.ts
 var import_fs89 = require("fs");
@@ -87060,9 +87070,9 @@ var README_INJECTOR_STORAGE = (0, import_node_path11.join)(
 // src/hooks/empty-message-sanitizer/index.ts
 var fs16 = __toESM(require("fs"), 1);
 var path19 = __toESM(require("path"), 1);
-var import_os16 = require("os");
+var import_os15 = require("os");
 var DEBUG5 = process.env.EMPTY_MESSAGE_SANITIZER_DEBUG === "1";
-var DEBUG_FILE4 = path19.join((0, import_os16.tmpdir)(), "empty-message-sanitizer-debug.log");
+var DEBUG_FILE4 = path19.join((0, import_os15.tmpdir)(), "empty-message-sanitizer-debug.log");
 
 // src/hooks/non-interactive-env/constants.ts
 var SHELL_COMMAND_PATTERNS = {
@@ -87127,8 +87137,8 @@ var import_path109 = require("path");
 
 // src/hooks/agent-usage-reminder/constants.ts
 var import_path108 = require("path");
-var import_os17 = require("os");
-var OMC_STORAGE_DIR3 = (0, import_path108.join)((0, import_os17.homedir)(), ".omc");
+var import_os16 = require("os");
+var OMC_STORAGE_DIR3 = (0, import_path108.join)((0, import_os16.homedir)(), ".omc");
 var AGENT_USAGE_REMINDER_STORAGE = (0, import_path108.join)(
   OMC_STORAGE_DIR3,
   "agent-usage-reminder"
@@ -87181,7 +87191,7 @@ init_ralph();
 // src/hooks/learner/auto-invoke.ts
 var import_fs94 = __toESM(require("fs"), 1);
 var import_path113 = __toESM(require("path"), 1);
-var import_os18 = __toESM(require("os"), 1);
+var import_os17 = __toESM(require("os"), 1);
 init_config_dir();
 init_atomic_write();
 
@@ -92317,12 +92327,12 @@ ${ULTRAGOAL_HELP}`);
 // src/cli/commands/teleport.ts
 var import_child_process33 = require("child_process");
 var import_fs102 = require("fs");
-var import_os20 = require("os");
+var import_os19 = require("os");
 var import_path120 = require("path");
 init_loader();
 init_providers();
 init_worktree_cleanup_safety();
-var DEFAULT_WORKTREE_ROOT = (0, import_path120.join)((0, import_os20.homedir)(), "Workspace", "omc-worktrees");
+var DEFAULT_WORKTREE_ROOT = (0, import_path120.join)((0, import_os19.homedir)(), "Workspace", "omc-worktrees");
 var PACKAGE_JSON_NAME = "package.json";
 var PACKAGE_MANAGER_LOCKFILES = {
   pnpm: "pnpm-lock.yaml",
@@ -92896,7 +92906,7 @@ function resolvePluginDirArg(rawPath) {
 // src/cli/launch.ts
 var import_child_process34 = require("child_process");
 var import_fs103 = require("fs");
-var import_os21 = require("os");
+var import_os20 = require("os");
 var import_path122 = require("path");
 init_mcp_registry();
 init_config_dir();
@@ -93025,7 +93035,7 @@ function prepareOmcLaunchConfigDir(baseConfigDir = getClaudeConfigDir()) {
   return runtimeConfigDir;
 }
 function isDefaultClaudeConfigDirPath2(configDir) {
-  return configDir === (0, import_path122.join)((0, import_os21.homedir)(), ".claude");
+  return configDir === (0, import_path122.join)((0, import_os20.homedir)(), ".claude");
 }
 function extractNotifyFlag(args) {
   let notifyEnabled = true;
@@ -93523,7 +93533,7 @@ function interopCommand(options = {}) {
 var import_child_process36 = require("child_process");
 var import_fs104 = require("fs");
 var import_promises22 = require("fs/promises");
-var import_os22 = require("os");
+var import_os21 = require("os");
 var import_path123 = require("path");
 var import_url16 = require("url");
 init_security_config();
@@ -93672,7 +93682,7 @@ function resolveAskAdvisorScriptPath(packageRoot = getPackageRoot(), env2 = proc
 }
 function resolveSignalExitCode(signal) {
   if (!signal) return 1;
-  const signalNumber = import_os22.constants.signals[signal];
+  const signalNumber = import_os21.constants.signals[signal];
   if (typeof signalNumber === "number" && Number.isFinite(signalNumber)) {
     return 128 + signalNumber;
   }

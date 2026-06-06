@@ -31,6 +31,8 @@ const WHITELIST_FILES = new Set([
   'scripts/lib/state-root.cjs',
   // The gate itself (contains '.omc' literals in its own patterns)
   'scripts/ci/check-multirepo-paths.mjs',
+  // Fork: report-persistence uses .omc paths resolved at runtime via cwd
+  'src/team/report-persistence.ts',
   // Hook scripts that resolve workspace markers inline (own resolver, pre-dist)
   'scripts/post-tool-verifier.mjs',
   'scripts/pre-tool-enforcer.mjs',

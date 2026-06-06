@@ -2014,9 +2014,8 @@ __export(tmux_session_exports, {
   waitForPaneReady: () => waitForPaneReady
 });
 import { existsSync as existsSync6 } from "fs";
-import { createHash as createHash2, randomBytes } from "crypto";
+import { createHash as createHash2 } from "crypto";
 import { execFile as execFile2 } from "child_process";
-import { tmpdir } from "os";
 import { promisify as promisify2 } from "util";
 import { join as join8, basename as basename4, isAbsolute as isAbsolute4, win32 } from "path";
 import fs from "fs/promises";
@@ -2206,18 +2205,6 @@ async function waitForShellReady(paneId, opts = {}) {
   logWorkerSpawnDiagnostic(
     `worker shell readiness timed out pane=${paneId} timeoutMs=${timeoutMs} lastStatus=${JSON.stringify(lastStatus)}`
   );
-  return false;
-}
-async function verifyWorkerStartCommandDelivered(paneId, startCmd) {
-  if (isCmuxSurfaceTarget(paneId)) return true;
-  const expected = normalizeTmuxCapture(startCmd);
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    const captured = await capturePaneAsync(paneId, { joinWrappedLines: true });
-    if (normalizeTmuxCapture(captured).includes(expected)) {
-      return true;
-    }
-    await sleep(50);
-  }
   return false;
 }
 function escapeForCmdSet(value) {
@@ -2606,44 +2593,21 @@ async function spawnWorkerInPane(sessionName2, paneId, config) {
     throw new Error(reason);
   }
   try {
-    const payloadDir = join8(tmpdir(), "omc-bootstrap");
-    await fs.mkdir(payloadDir, { recursive: true });
-    const payloadFile = join8(payloadDir, `payload-${String(paneId).replace(/[^A-Za-z0-9_.-]/g, "_")}-${randomBytes(4).toString("hex")}`);
-    await fs.writeFile(payloadFile, `stty -echo 2>/dev/null; eval exec ${startCmd}
-`, "utf-8");
-    const bootstrapCmd = `source ${payloadFile}`;
     const sendResult = await tmuxExecAsync([
-      "send-keys",
+      "respawn-pane",
+      "-k",
       "-t",
       paneId,
-      "-l",
-      bootstrapCmd
+      "-c",
+      config.cwd,
+      startCmd
     ], { timeout: 5e3 });
     logWorkerSpawnDiagnostic(
-      `worker start send-keys literal session=${sessionName2} pane=${paneId} worker=${config.workerName} cmdSha=${fingerprint} sendStatus=0 stderr=${JSON.stringify(sendResult.stderr.trim())}`
+      `worker start respawn-pane session=${sessionName2} pane=${paneId} worker=${config.workerName} cmdSha=${fingerprint} sendStatus=0 stderr=${JSON.stringify(sendResult.stderr.trim())}`
     );
   } catch (error) {
     logWorkerSpawnDiagnostic(
-      `worker start send-keys literal failed session=${sessionName2} pane=${paneId} worker=${config.workerName} cmdSha=${fingerprint} sendStatus=1 error=${JSON.stringify(error instanceof Error ? error.message : String(error))}`
-    );
-    throw error;
-  }
-  const delivered = await verifyWorkerStartCommandDelivered(paneId, startCmd);
-  if (!delivered) {
-    const reason = `worker_start_delivery_unverified:${config.workerName}:${paneId}:${fingerprint}`;
-    logWorkerSpawnDiagnostic(
-      `worker start delivery verification failed session=${sessionName2} pane=${paneId} worker=${config.workerName} cmdSha=${fingerprint} cmdPreview=${JSON.stringify(preview)}`
-    );
-    throw new Error(reason);
-  }
-  try {
-    const enterResult = await tmuxExecAsync(["send-keys", "-t", paneId, "Enter"], { timeout: 5e3 });
-    logWorkerSpawnDiagnostic(
-      `worker start submit sent session=${sessionName2} pane=${paneId} worker=${config.workerName} cmdSha=${fingerprint} sendStatus=0 stderr=${JSON.stringify(enterResult.stderr.trim())}`
-    );
-  } catch (error) {
-    logWorkerSpawnDiagnostic(
-      `worker start submit failed session=${sessionName2} pane=${paneId} worker=${config.workerName} cmdSha=${fingerprint} sendStatus=1 error=${JSON.stringify(error instanceof Error ? error.message : String(error))}`
+      `worker start respawn-pane failed session=${sessionName2} pane=${paneId} worker=${config.workerName} cmdSha=${fingerprint} sendStatus=1 error=${JSON.stringify(error instanceof Error ? error.message : String(error))}`
     );
     throw error;
   }
@@ -2698,9 +2662,9 @@ function paneHasTrustPrompt(captured) {
 function paneHasCodexStartupBanner(captured) {
   const lines = captured.split("\n").map((line) => line.replace(/\r/g, "").trim());
   const startupHits = lines.filter(
-    (line) => /^[│╭╰├╰╰─]*\s*(Implement|Describe|Fix|Refactor|Explain|Search|Ask)\s+\{/.test(line) || /\b(Build faster|New to Codex|Tip: New Build faster with Codex)\b/i.test(line)
+    (line) => /^[│╭╰├╰╰─]*\s*(Implement|Describe|Fix|Refactor|Explain|Search|Ask)\s+\{/.test(line) || /^\s*(?:[│┃║▌▐▏▕╎┆┊]\s*)?>_\s+OpenAI\s+Codex\b/i.test(line) || /\b(OpenAI Codex|Build faster|New to Codex|Tip: New Build faster with Codex)\b/i.test(line)
   );
-  return startupHits.length >= 3;
+  return startupHits.length >= 1;
 }
 function paneHasClaudeStartupBanner(captured) {
   const lines = captured.split("\n").map((line) => line.replace(/\r/g, "").trim()).filter((line) => line.length > 0).slice(-20);
@@ -2712,9 +2676,13 @@ function paneHasClaudeStartupBanner(captured) {
   return lastStartupBannerIndex >= 0;
 }
 function paneIsBootstrapping(captured) {
-  if (paneHasClaudeStartupBanner(captured)) return true;
   const lines = captured.split("\n").map((line) => line.replace(/\r/g, "").trim()).filter((line) => line.length > 0);
-  return lines.some(
+  const lastPromptIndex = lines.findLastIndex(paneLineLooksLikeIdlePrompt);
+  if (lastPromptIndex < 0 && (paneHasClaudeStartupBanner(captured) || paneHasCodexStartupBanner(captured))) {
+    return true;
+  }
+  const relevantLines = lastPromptIndex >= 0 ? lines.slice(lastPromptIndex + 1) : lines;
+  return relevantLines.some(
     (line) => /\b(loading|initializing|starting up)\b/i.test(line) || /\bmodel:\s*loading\b/i.test(line) || /\bconnecting\s+to\b/i.test(line)
   );
 }
@@ -2728,7 +2696,7 @@ function paneHasActiveTask(captured) {
   return false;
 }
 function paneLineLooksLikeIdlePrompt(line) {
-  return /^\s*(?:[│┃║▌▐▏▕╎┆┊]\s*)?[›>❯]\s*/u.test(line);
+  return /^\s*(?:[│┃║▌▐▏▕╎┆┊]\s*)?[›>❯](?:\s|$)/u.test(line);
 }
 function paneLooksReady(captured) {
   const content = captured.trimEnd();
@@ -2758,9 +2726,34 @@ async function waitForPaneReady(paneId, opts = {}) {
   );
   return false;
 }
+async function waitForReadyPaneCapture(paneId, opts = {}) {
+  const timeoutMs = Number.isFinite(opts.timeoutMs) && (opts.timeoutMs ?? 0) > 0 ? Number(opts.timeoutMs) : 2e3;
+  const pollIntervalMs = Number.isFinite(opts.pollIntervalMs) && (opts.pollIntervalMs ?? 0) > 0 ? Number(opts.pollIntervalMs) : 250;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const captured = await capturePaneAsync(paneId);
+    if (paneLooksReady(captured) && !paneHasActiveTask(captured)) {
+      return captured;
+    }
+    await sleep(pollIntervalMs);
+  }
+  return null;
+}
 function paneTailContainsLiteralLine(captured, text) {
   const lines = captured.split("\n").filter((l) => l.trim().length > 0).slice(-40);
   return normalizeTmuxCapture(lines.join("\n")).includes(normalizeTmuxCapture(text));
+}
+async function waitForLiteralMessageVisible(paneId, message, attempts = 4, delayMs = 80) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const captured = await capturePaneAsync(paneId);
+    if (paneTailContainsLiteralLine(captured, message)) {
+      return true;
+    }
+    if (attempt < attempts) {
+      await sleep(delayMs);
+    }
+  }
+  return false;
 }
 async function paneInCopyMode(paneId) {
   if (isCmuxSurfaceTarget(paneId)) return false;
@@ -2794,9 +2787,20 @@ async function sendToWorker(_sessionName, paneId, message) {
     if (await paneInCopyMode(paneId)) {
       return false;
     }
-    const initialCapture = await capturePaneAsync(paneId);
-    if (paneHasClaudeStartupBanner(initialCapture) || paneHasCodexStartupBanner(initialCapture)) {
-      return false;
+    let initialCapture = await capturePaneAsync(paneId);
+    if (paneIsBootstrapping(initialCapture)) {
+      const settledCapture = await waitForReadyPaneCapture(paneId);
+      if (!settledCapture) return false;
+      initialCapture = settledCapture;
+    }
+    const isStartupInboxTrigger = /(?:^|[\\/])inbox\.md\b/.test(message) || message.includes(".omc/state/team/");
+    const looksLikeCodexPane = /OpenAI Codex\b/i.test(initialCapture);
+    if (isStartupInboxTrigger && looksLikeCodexPane) {
+      await sleep(300);
+      const settledCapture = await waitForReadyPaneCapture(paneId, { timeoutMs: 1500, pollIntervalMs: 200 });
+      if (settledCapture) {
+        initialCapture = settledCapture;
+      }
     }
     const paneBusy = paneHasActiveTask(initialCapture);
     const trustPromptKind = detectPaneTrustPromptKind(initialCapture);
@@ -2817,6 +2821,10 @@ async function sendToWorker(_sessionName, paneId, message) {
       await tmuxExecAsync(["send-keys", "-t", paneId, "-l", "--", message]);
     }
     await sleep(150);
+    const sawTypedMessage = await waitForLiteralMessageVisible(paneId, message);
+    if (!sawTypedMessage) {
+      return false;
+    }
     const submitRounds = 6;
     for (let round = 0; round < submitRounds; round++) {
       await sleep(100);
@@ -2860,6 +2868,9 @@ async function sendToWorker(_sessionName, paneId, message) {
         await tmuxExecAsync(["send-keys", "-t", paneId, "-l", "--", message]);
       }
       await sleep(120);
+      if (!await waitForLiteralMessageVisible(paneId, message)) {
+        return false;
+      }
       for (let round = 0; round < 4; round++) {
         await sendKey("C-m");
         await sleep(180);
@@ -8596,7 +8607,7 @@ async function spawnV2Worker(opts) {
       startupFailureReason: dispatchOutcome.reason
     };
   }
-  if (opts.agentType === "claude" || opts.agentType === "codex") {
+  if (opts.agentType === "claude") {
     let settled = await waitForWorkerStartupEvidence(
       opts.teamName,
       opts.workerName,
@@ -8604,8 +8615,7 @@ async function spawnV2Worker(opts) {
       opts.cwd,
       6
     );
-    const maxRetries = opts.agentType === "codex" ? 8 : 4;
-    for (let attempt = 1; !settled && attempt <= maxRetries; attempt++) {
+    for (let attempt = 1; !settled && attempt <= 4; attempt++) {
       try {
         await sendTeamPaneKey(paneId, "Enter");
       } catch {
@@ -8616,14 +8626,14 @@ async function spawnV2Worker(opts) {
         opts.workerName,
         opts.taskId,
         opts.cwd,
-        opts.agentType === "codex" ? 20 : 12
+        12
       );
     }
     if (!settled) {
       return {
         paneId,
         startupAssigned: false,
-        startupFailureReason: `${opts.agentType}_startup_evidence_missing`
+        startupFailureReason: "claude_startup_evidence_missing"
       };
     }
   }
