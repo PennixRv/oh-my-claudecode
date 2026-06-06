@@ -193,9 +193,15 @@ function sanitizeForKeywordDetection(text) {
     .replace(/^\s*>\s.*$/gm, '')
     .replace(/^\s*\|(?:[^|\n]*\|){2,}\s*$/gm, '')
     .replace(/^\s*\|?(?:\s*:?-{3,}:?\s*\|){1,}\s*$/gm, '')
-    // 4. Strip file paths: /foo/bar/baz or foo/bar/baz — uses lookbehind (Node.js supports it)
-    // The TypeScript version (index.ts) uses capture group + $1 replacement for broader compat
-    .replace(/(?<=^|[\s"'`(])(?:\/)?(?:[\w.-]+\/)+[\w.-]+/gm, '')
+    // 4. Strip file paths — uses lookbehind (Node.js supports it). Requires at least one
+    // slash-terminated directory segment (?:SEG+\/)+ so bare slash-commands like /ralph are NOT
+    // stripped (the .mjs has no pre-sanitization slash handler for them). Directory/stem segments
+    // are Unicode-aware (\w.- plus the NON_LATIN_SCRIPT_PATTERN ranges) so CJK file names like
+    // docs/コードレビュー.md are stripped. The final segment is bounded: a CJK-capable stem ending
+    // in a .ext, OR an ASCII-only extensionless name — so a no-space CJK directive following a path
+    // (e.g. src/auth.tsをコードレビューして) is NOT consumed by a greedy CJK tail and the alias
+    // still activates.
+    .replace(/(?<=^|[\s"'`(])(?:\/)?(?:[\w.\-　-鿿가-힯Ѐ-ӿ؀-ۿऀ-ॿ฀-๿က-႟]+\/)+(?:[\w.\-　-鿿가-힯Ѐ-ӿ؀-ۿऀ-ॿ฀-๿က-႟]*\.\w+|[\w.\-]+)/gm, '')
     // 5. Strip markdown code blocks (existing)
     .replace(/```[\s\S]*?```/g, '')
     // 6. Strip inline code (existing)
@@ -330,7 +336,7 @@ function stripPastedCommandPayloads(text) {
 const INFORMATIONAL_INTENT_PATTERNS = [
   /\b(?:what(?:'s|\s+is)|what\s+are|how\s+(?:to|do\s+i)\s+use|explain|explanation|tell\s+me\s+about|describe)\b/i,
   /(?:뭐야|뭔데|무엇(?:이야|인가요)?|어떻게|설명(?!서\s*(?:작성|만들|생성|추가|업데이트|수정|편집|쓰))|사용법|알려\s?줘|알려줄래|소개해?\s?줘|소개\s*부탁|설명해\s?줘|뭐가\s*달라|어떤\s*기능|기능\s*(?:알려|설명|뭐)|방법\s*(?:알려|설명|뭐))/u,
-  /(?:とは|って何|使い方|説明|(?:について|に関して)[^\n]{0,24}(?:教えて|説明|知りたい))/u,
+  /(?:とは|って何|使い方|説明|(?:について|に関して|違い)[^\n]{0,24}(?:教えて|説明|知りたい)|(?:どう|何が|どこが)違う)/u,
   /(?:什么是|什麼是|怎(?:么|樣)用|如何使用|解释|說明|说明)/u,
 ];
 const INFORMATIONAL_CONTEXT_WINDOW = 80;
@@ -974,7 +980,7 @@ async function main() {
 
 
     // CCG keywords (Claude-Codex-Gemini tri-model orchestration)
-    if (hasActionableKeyword(cleanPrompt, /\b(ccg|claude-codex-gemini)\b|(씨씨지)/i)) {
+    if (hasActionableKeyword(cleanPrompt, /\b(ccg|claude-codex-gemini)\b|(씨씨지)|(シーシージー)/i)) {
       matches.push({ name: 'ccg', args: '' });
     }
 
@@ -989,7 +995,7 @@ async function main() {
     // brand name as the first token is a deterministic command, not a
     // routing request. Natural-language mentions ("please use ouroboros
     // to clarify…") still match because the brand is mid-sentence.
-    if (hasActionableKeyword(cleanPrompt, /\b(deep[\s-]interview|ouroboros)\b|(딥인터뷰)/i)) {
+    if (hasActionableKeyword(cleanPrompt, /\b(deep[\s-]interview|ouroboros)\b|(딥인터뷰)|(ディープインタビュー)/i)) {
       if (!/^\s*\/?(?:ouroboros|ooo)\b/i.test(cleanPrompt)) {
         matches.push({ name: 'deep-interview', args: '' });
       }
@@ -1001,7 +1007,7 @@ async function main() {
     }
 
     // TDD keywords
-    if (hasActionableKeyword(cleanPrompt, /\b(tdd)\b|(테스트\s?퍼스트)/i) ||
+    if (hasActionableKeyword(cleanPrompt, /\b(tdd)\b|(테스트\s?퍼스트)|(テスト\s?ファースト)/i) ||
         hasActionableKeyword(cleanPrompt, /\btest\s+first\b/i) ||
         hasActionableKeyword(cleanPrompt, /\bred\s+green\b/i)) {
       matches.push({ name: 'tdd', args: '' });
@@ -1009,13 +1015,13 @@ async function main() {
 
     // Code review keywords — skip when the prompt is echoed review-instruction text
     if (!isReviewSeedContext(cleanPrompt) &&
-        hasActionableKeyword(cleanPrompt, /\b(code\s+review|review\s+code)\b|(코드\s?리뷰)(?!어)/i)) {
+        hasActionableKeyword(cleanPrompt, /\b(code\s+review|review\s+code)\b|(코드\s?리뷰)(?!어)|(コード\s?レビュー)(?!ア)/i)) {
       matches.push({ name: 'code-review', args: '' });
     }
 
     // Security review keywords — skip when the prompt is echoed review-instruction text
     if (!isReviewSeedContext(cleanPrompt) &&
-        hasActionableKeyword(cleanPrompt, /\b(security\s+review|review\s+security)\b|(보안\s?리뷰)(?!어)/i)) {
+        hasActionableKeyword(cleanPrompt, /\b(security\s+review|review\s+security)\b|(보안\s?리뷰)(?!어)|(セキュリティ[ー]?\s?レビュー)(?!ア)/i)) {
       matches.push({ name: 'security-review', args: '' });
     }
 
@@ -1025,14 +1031,14 @@ async function main() {
     }
 
     // Deepsearch keywords
-    if (hasActionableKeyword(cleanPrompt, /\b(deepsearch)\b|(딥\s?서치)/i) ||
+    if (hasActionableKeyword(cleanPrompt, /\b(deepsearch)\b|(딥\s?서치)|(ディープ\s?サーチ)/i) ||
         hasActionableKeyword(cleanPrompt, /\bsearch\s+the\s+codebase\b/i) ||
         hasActionableKeyword(cleanPrompt, /\bfind\s+in\s+(the\s+)?codebase\b/i)) {
       matches.push({ name: 'deepsearch', args: '' });
     }
 
     // Analyze keywords
-    if (hasActionableKeyword(cleanPrompt, /\b(deep[\s-]?analyze|deepanalyze)\b|(딥\s?분석)/i)) {
+    if (hasActionableKeyword(cleanPrompt, /\b(deep[\s-]?analyze|deepanalyze)\b|(딥\s?분석)|(ディープ\s?アナライズ)/i)) {
       matches.push({ name: 'analyze', args: '' });
     }
 

@@ -50,14 +50,14 @@ const KEYWORD_PATTERNS: Record<KeywordType, RegExp> = {
   // This prevents infinite spawning when Claude workers receive prompts containing "team".
   team: /(?!x)x/,  // never-match placeholder (type system requires the key)
   ralplan: /\b(ralplan)\b|(랄플랜)|(ラルプラン)/i,
-  tdd: /\b(tdd)\b|\btest\s+first\b|(테스트\s?퍼스트)/i,
-  'code-review': /\b(code\s+review|review\s+code)\b|(코드\s?리뷰)(?!어)/i,
-  'security-review': /\b(security\s+review|review\s+security)\b|(보안\s?리뷰)(?!어)/i,
+  tdd: /\b(tdd)\b|\btest\s+first\b|(테스트\s?퍼스트)|(テスト\s?ファースト)/i,
+  'code-review': /\b(code\s+review|review\s+code)\b|(코드\s?리뷰)(?!어)|(コード\s?レビュー)(?!ア)/i,
+  'security-review': /\b(security\s+review|review\s+security)\b|(보안\s?리뷰)(?!어)|(セキュリティ[ー]?\s?レビュー)(?!ア)/i,
   ultrathink: /\b(ultrathink)\b|(울트라씽크)|(ウルトラシンク)/i,
-  deepsearch: /\b(deepsearch)\b|\bsearch\s+the\s+codebase\b|\bfind\s+in\s+(the\s+)?codebase\b|(딥\s?서치)/i,
-  analyze: /\b(deep[\s-]?analyze|deepanalyze)\b|(딥\s?분석)/i,
-  'deep-interview': /\b(deep[\s-]interview|ouroboros)\b|(딥인터뷰)/i,
-  ccg: /\b(ccg|claude-codex-gemini)\b|(씨씨지)/i,
+  deepsearch: /\b(deepsearch)\b|\bsearch\s+the\s+codebase\b|\bfind\s+in\s+(the\s+)?codebase\b|(딥\s?서치)|(ディープ\s?サーチ)/i,
+  analyze: /\b(deep[\s-]?analyze|deepanalyze)\b|(딥\s?분석)|(ディープ\s?アナライズ)/i,
+  'deep-interview': /\b(deep[\s-]interview|ouroboros)\b|(딥인터뷰)|(ディープインタビュー)/i,
+  ccg: /\b(ccg|claude-codex-gemini)\b|(씨씨지)|(シーシージー)/i,
   codex: /\b(ask|use|delegate\s+to)\s+(codex|gpt)\b/i,
   gemini: /\b(ask|use|delegate\s+to)\s+gemini\b/i
 };
@@ -323,6 +323,42 @@ export const NON_LATIN_SCRIPT_PATTERN =
   /[\u3000-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u06FF\u0900-\u097F\u0E00-\u0E7F\u1000-\u109F]/u;
 
 /**
+ * Character class for a single file-path segment. Includes `\w.-` plus the same
+ * non-Latin script ranges as NON_LATIN_SCRIPT_PATTERN, so CJK/etc. file names
+ * (e.g. `docs/\u30B3\u30FC\u30C9\u30EC\u30D3\u30E5\u30FC.md`) are recognized as paths and stripped before
+ * keyword detection. Without this, a CJK alias embedded in a path survives
+ * sanitization and falsely activates its mode (path detection is ASCII-only
+ * with a bare `[\w.-]`). Building the path regex from this shared constant
+ * avoids the class drifting across its repeated uses below.
+ */
+const PATH_SEGMENT_CHARS =
+  '[\\w.\\-\\u3000-\\u9FFF\\uAC00-\\uD7AF\\u0400-\\u04FF\\u0600-\\u06FF\\u0900-\\u097F\\u0E00-\\u0E7F\\u1000-\\u109F]';
+
+/**
+ * File-path matcher used by sanitizeForKeywordDetection. Requires at least one
+ * slash-terminated directory segment `(?:SEG+/)+` (optionally preceded by a `/`;
+ * a leading `./` is absorbed by the first segment since SEG includes `.`), then a
+ * final segment bounded as a (CJK-capable) stem ending in an ASCII `.ext` OR an
+ * ASCII-only extensionless name. Directory/stem segments are Unicode-aware
+ * (PATH_SEGMENT_CHARS) so CJK file names strip too, while a no-space CJK directive
+ * after a path is NOT consumed by a greedy tail. Structurally identical to the
+ * runtime `.mjs` path stripper, so index.ts and the .mjs produce the same keyword
+ * outcome for every path input — no detector/bundle divergence. Bare slash-commands
+ * like `/ralph` lack an internal slash so they are not stripped here (and are
+ * detected pre-sanitization via parseExplicitWorkflowSlashInvocation anyway).
+ */
+/* eslint-disable no-misleading-character-class -- Same script ranges as NON_LATIN_SCRIPT_PATTERN: intentional range set, not grapheme clusters */
+const FILE_PATH_PATTERN = new RegExp(
+  '(^|[\\s"\'`(])(?:\\/)?(?:' +
+    PATH_SEGMENT_CHARS +
+    '+\\/)+(?:' +
+    PATH_SEGMENT_CHARS +
+    '*\\.\\w+|[\\w.\\-]+)',
+  'gm',
+);
+/* eslint-enable no-misleading-character-class */
+
+/**
 * Sanitize text for keyword detection by removing structural noise.
  * Strips XML tags, URLs, file paths, and code blocks.
  */
@@ -340,8 +376,9 @@ export function sanitizeForKeywordDetection(text: string): string {
   result = result.replace(/^\s*>\s.*$/gm, '');
   result = result.replace(/^\s*\|(?:[^|\n]*\|){2,}\s*$/gm, '');
   result = result.replace(/^\s*\|?(?:\s*:?-{3,}:?\s*\|){1,}\s*$/gm, '');
-  // Remove file paths — requires leading / or ./ or multi-segment dir/file.ext
-  result = result.replace(/(^|[\s"'`(])(?:\.?\/(?:[\w.-]+\/)*[\w.-]+|(?:[\w.-]+\/)+[\w.-]+\.\w+)/gm, '$1');
+  // Remove file paths — requires leading / or ./ or multi-segment dir/file.ext.
+  // Unicode-aware segments (FILE_PATH_PATTERN) so CJK file names are stripped too.
+  result = result.replace(FILE_PATH_PATTERN, '$1');
   // Remove code blocks (fenced and inline)
   result = removeCodeBlocks(result);
   return result;
@@ -350,7 +387,7 @@ export function sanitizeForKeywordDetection(text: string): string {
 const INFORMATIONAL_INTENT_PATTERNS: RegExp[] = [
   /\b(?:what(?:'s|\s+is)|what\s+are|how\s+(?:to|do\s+i)\s+use|explain|explanation|tell\s+me\s+about|describe)\b/i,
   /(?:뭐야|뭔데|무엇(?:이야|인가요)?|어떻게|설명(?!서\s*(?:작성|만들|생성|추가|업데이트|수정|편집|쓰))|사용법|알려\s?줘|알려줄래|소개해?\s?줘|소개\s*부탁|설명해\s?줘|뭐가\s*달라|어떤\s*기능|기능\s*(?:알려|설명|뭐)|방법\s*(?:알려|설명|뭐))/u,
-  /(?:とは|って何|使い方|説明|(?:について|に関して)[^\n]{0,24}(?:教えて|説明|知りたい))/u,
+  /(?:とは|って何|使い方|説明|(?:について|に関して|違い)[^\n]{0,24}(?:教えて|説明|知りたい)|(?:どう|何が|どこが)違う)/u,
   /(?:什么是|怎(?:么|樣)用|如何使用|解释|說明|说明)/u,
 ];
 const INFORMATIONAL_CONTEXT_WINDOW = 80;

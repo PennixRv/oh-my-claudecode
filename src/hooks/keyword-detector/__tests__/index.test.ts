@@ -334,6 +334,29 @@ Final draft.`);
         expect(result).toEqual([]);
       });
 
+      it('should NOT detect Japanese "違いを教えて" difference questions', () => {
+        // "...の違いを教えて" (explain the difference) is informational, not an activation.
+        expect(
+          detectKeywordsWithType('ディープサーチと普通の検索の違いを教えて').find(
+            (r) => r.type === 'deepsearch',
+          ),
+        ).toBeUndefined();
+        expect(
+          detectKeywordsWithType('ディープアナライズと分析の違いを教えて').find(
+            (r) => r.type === 'analyze',
+          ),
+        ).toBeUndefined();
+        expect(
+          detectKeywordsWithType('何が違うのか教えて').length,
+        ).toBe(0);
+      });
+
+      it('Japanese "違い" with a work verb (修正) is NOT suppressed', () => {
+        // "違いを修正して" is a work request, not a difference question — must still fire.
+        const result = detectKeywordsWithType('コードレビューの違いを修正して');
+        expect(result.find((r) => r.type === 'code-review')).toBeDefined();
+      });
+
       it('should NOT detect informational Chinese questions about ralph', () => {
         const result = detectKeywordsWithType('ralph 是什么？怎么用？');
         expect(result).toEqual([]);
@@ -1974,6 +1997,179 @@ This article argues that fake popularity signals damage trust in open source.`;
         const result = detectKeywordsWithType('테스트 퍼스트');
         const match = result.find((r) => r.type === 'tdd');
         expect(match).toBeDefined();
+      });
+    });
+
+    describe('Japanese keyword detection (basic matching — KO parity)', () => {
+      it('should detect "コードレビュー" as code-review', () => {
+        const result = detectKeywordsWithType('コードレビューして');
+        const match = result.find((r) => r.type === 'code-review');
+        expect(match).toBeDefined();
+      });
+
+      it('should detect "コード レビュー" (spaced) as code-review', () => {
+        const result = detectKeywordsWithType('コード レビュー お願い');
+        const match = result.find((r) => r.type === 'code-review');
+        expect(match).toBeDefined();
+      });
+
+      it('should NOT detect "コードレビューアー募集" as code-review (reviewer false positive)', () => {
+        const result = detectKeywordsWithType('コードレビューアー募集');
+        const match = result.find((r) => r.type === 'code-review');
+        expect(match).toBeUndefined();
+      });
+
+      it('should detect "セキュリティレビュー" as security-review', () => {
+        const result = detectKeywordsWithType('セキュリティレビューして');
+        const match = result.find((r) => r.type === 'security-review');
+        expect(match).toBeDefined();
+      });
+
+      it('should detect "セキュリティーレビュー" (long vowel) as security-review', () => {
+        const result = detectKeywordsWithType('セキュリティーレビューして');
+        const match = result.find((r) => r.type === 'security-review');
+        expect(match).toBeDefined();
+      });
+
+      it('should NOT detect "セキュリティレビューアー募集" as security-review (reviewer false positive)', () => {
+        const result = detectKeywordsWithType('セキュリティレビューアー募集');
+        const match = result.find((r) => r.type === 'security-review');
+        expect(match).toBeUndefined();
+      });
+
+      it('should detect "ディープサーチ" as deepsearch', () => {
+        const result = detectKeywordsWithType('ディープサーチして');
+        const match = result.find((r) => r.type === 'deepsearch');
+        expect(match).toBeDefined();
+      });
+
+      it('should detect "ディープ サーチ" (spaced) as deepsearch', () => {
+        const result = detectKeywordsWithType('ディープ サーチ して');
+        const match = result.find((r) => r.type === 'deepsearch');
+        expect(match).toBeDefined();
+      });
+
+      it('should detect "ディープアナライズ" as analyze', () => {
+        const result = detectKeywordsWithType('ディープアナライズして');
+        const match = result.find((r) => r.type === 'analyze');
+        expect(match).toBeDefined();
+      });
+
+      it('should detect "ディープ アナライズ" (spaced) as analyze', () => {
+        const result = detectKeywordsWithType('ディープ アナライズ して');
+        const match = result.find((r) => r.type === 'analyze');
+        expect(match).toBeDefined();
+      });
+
+      it('should detect "ディープインタビュー" as deep-interview', () => {
+        const result = detectKeywordsWithType('ディープインタビューしたい');
+        const match = result.find((r) => r.type === 'deep-interview');
+        expect(match).toBeDefined();
+      });
+
+      it('should detect "シーシージー" as ccg', () => {
+        const result = detectKeywordsWithType('シーシージーで実装して');
+        const match = result.find((r) => r.type === 'ccg');
+        expect(match).toBeDefined();
+      });
+
+      it('should detect "テストファースト" as tdd', () => {
+        const result = detectKeywordsWithType('テストファーストで実装して');
+        const match = result.find((r) => r.type === 'tdd');
+        expect(match).toBeDefined();
+      });
+
+      it('should detect "テスト ファースト" (spaced) as tdd (KO \\s? parity)', () => {
+        const result = detectKeywordsWithType('テスト ファースト で実装して');
+        const match = result.find((r) => r.type === 'tdd');
+        expect(match).toBeDefined();
+      });
+
+      it('should NOT trigger code-review for informational "コードレビューとは何ですか"', () => {
+        const result = detectKeywordsWithType('コードレビューとは何ですか');
+        const match = result.find((r) => r.type === 'code-review');
+        expect(match).toBeUndefined();
+      });
+
+      it('should NOT trigger tdd for informational "テストファーストの使い方を教えて"', () => {
+        const result = detectKeywordsWithType('テストファーストの使い方を教えて');
+        const match = result.find((r) => r.type === 'tdd');
+        expect(match).toBeUndefined();
+      });
+    });
+
+    describe('CJK file-path stripping (no false activation)', () => {
+      it('should NOT detect code-review for a Japanese file path "docs/コードレビュー.mdを読んで"', () => {
+        const result = detectKeywordsWithType('docs/コードレビュー.mdを読んで');
+        expect(result.find((r) => r.type === 'code-review')).toBeUndefined();
+      });
+
+      it('should NOT detect code-review for a leading-slash path "/docs/コードレビュー.md"', () => {
+        const result = detectKeywordsWithType('/docs/コードレビュー.md を確認して');
+        expect(result.find((r) => r.type === 'code-review')).toBeUndefined();
+      });
+
+      it('should NOT detect security-review for "src/セキュリティレビュー.ts"', () => {
+        const result = detectKeywordsWithType('src/セキュリティレビュー.ts を開いて');
+        expect(result.find((r) => r.type === 'security-review')).toBeUndefined();
+      });
+
+      it('should NOT detect deepsearch for "docs/ディープサーチ.md"', () => {
+        const result = detectKeywordsWithType('docs/ディープサーチ.md を読む');
+        expect(result.find((r) => r.type === 'deepsearch')).toBeUndefined();
+      });
+
+      it('should NOT detect analyze for "notes/ディープアナライズ.md"', () => {
+        const result = detectKeywordsWithType('notes/ディープアナライズ.md を見て');
+        expect(result.find((r) => r.type === 'analyze')).toBeUndefined();
+      });
+
+      it('control: bare "コードレビューして" (no path) STILL detects code-review', () => {
+        const result = detectKeywordsWithType('コードレビューして');
+        expect(result.find((r) => r.type === 'code-review')).toBeDefined();
+      });
+
+      it('control: bare "ディープアナライズして" (no path) STILL detects analyze', () => {
+        const result = detectKeywordsWithType('ディープアナライズして');
+        expect(result.find((r) => r.type === 'analyze')).toBeDefined();
+      });
+
+      // r3367755945: a no-space directive after a path must not be swallowed — the .ext
+      // anchor bounds the path at the file name, so the trailing alias still activates.
+      it('detects code-review for "src/auth.tsをコードレビューして" (directive after path)', () => {
+        const result = detectKeywordsWithType('src/auth.tsをコードレビューして');
+        expect(result.find((r) => r.type === 'code-review')).toBeDefined();
+      });
+
+      // A CJK-only, extensionless final segment is intentionally NOT treated as a path
+      // (the final segment must be `stem.ext` or ASCII-extensionless), so the alias fires.
+      it('detects code-review for "src/コードレビューして" (CJK extensionless, not a path)', () => {
+        const result = detectKeywordsWithType('src/コードレビューして');
+        expect(result.find((r) => r.type === 'code-review')).toBeDefined();
+      });
+
+      // Leading-slash / relative paths must also bound at the extension (parity with the
+      // runtime .mjs) — the directive after the path must still activate the alias.
+      it('detects code-review for "/src/auth.tsをコードレビューして" (leading-slash path)', () => {
+        const result = detectKeywordsWithType('/src/auth.tsをコードレビューして');
+        expect(result.find((r) => r.type === 'code-review')).toBeDefined();
+      });
+
+      it('detects analyze for "./lib/parser.tsをディープアナライズして" (relative path)', () => {
+        const result = detectKeywordsWithType('./lib/parser.tsをディープアナライズして');
+        expect(result.find((r) => r.type === 'analyze')).toBeDefined();
+      });
+
+      // Extensionless multi-segment paths are stripped (parity with the .mjs), so a keyword
+      // that is merely a directory name does not false-fire — for CJK aliases and ASCII alike.
+      it('does NOT detect code-review for "lib/コードレビュー/index を見て" (alias as a directory name)', () => {
+        const result = detectKeywordsWithType('lib/コードレビュー/index を見て');
+        expect(result.find((r) => r.type === 'code-review')).toBeUndefined();
+      });
+
+      it('does NOT detect ralph for "lib/ralph/index を見て" (keyword as a directory name)', () => {
+        const result = detectKeywordsWithType('lib/ralph/index を見て');
+        expect(result.find((r) => r.type === 'ralph')).toBeUndefined();
       });
     });
 
