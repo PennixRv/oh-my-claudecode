@@ -1711,20 +1711,39 @@ async function captureTaskReport(params) {
   const reportsDir = (0, import_path22.join)(cwd, REPORTS_DIR);
   let body = "";
   let source = "";
-  const workerReportPath = (0, import_path22.join)(
-    cwd,
-    ".omc",
-    "state",
-    "team",
-    teamName,
-    "workers",
-    workerName2,
-    `report-task-${taskId}.md`
-  );
-  if ((0, import_fs20.existsSync)(workerReportPath)) {
+  const canonicalPath = (0, import_path22.join)(cwd, ".omc", "reports", `task-${taskId}-${workerName2}.md`);
+  if ((0, import_fs20.existsSync)(canonicalPath)) {
     try {
-      body = await (0, import_promises10.readFile)(workerReportPath, "utf-8");
-      source = "worker-report-file";
+      body = await (0, import_promises10.readFile)(canonicalPath, "utf-8");
+      source = "canonical-report";
+    } catch {
+    }
+  }
+  if (!body) {
+    const workerReportPath = (0, import_path22.join)(cwd, ".omc", "state", "team", teamName, "workers", workerName2, `report-task-${taskId}.md`);
+    if ((0, import_fs20.existsSync)(workerReportPath)) {
+      try {
+        body = await (0, import_promises10.readFile)(workerReportPath, "utf-8");
+        source = "worker-report-file";
+      } catch {
+      }
+    }
+  }
+  if (!body) {
+    try {
+      const reportsDir2 = (0, import_path22.join)(cwd, ".omc", "reports");
+      if ((0, import_fs20.existsSync)(reportsDir2)) {
+        const { readdir: rd } = await import("fs/promises");
+        const files = await rd(reportsDir2);
+        const match = files.filter((f) => f.startsWith(`task-${taskId}-${workerName2}`) || f.startsWith(`${teamName}-task${taskId}-`)).sort().pop();
+        if (match) {
+          try {
+            body = await (0, import_promises10.readFile)((0, import_path22.join)(reportsDir2, match), "utf-8");
+            source = "scanned-reports-dir";
+          } catch {
+          }
+        }
+      }
     } catch {
     }
   }
@@ -1738,9 +1757,10 @@ async function captureTaskReport(params) {
   }
   if (!body) return null;
   await (0, import_promises10.mkdir)(reportsDir, { recursive: true });
-  const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "").slice(0, 15) + "Z";
-  const reportFile = (0, import_path22.join)(reportsDir, `${teamName}-task${taskId}-${ts}.md`);
-  const tmpFile = (0, import_path22.join)(reportsDir, `.tmp-${teamName}-task${taskId}-${ts}-${process.pid}`);
+  const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[T:-]/g, "").slice(0, 17);
+  const suffix = (0, import_crypto5.randomBytes)(3).toString("hex");
+  const reportFile = (0, import_path22.join)(reportsDir, `${teamName}-task${taskId}-${workerName2}-${ts}-${suffix}.md`);
+  const tmpFile = (0, import_path22.join)(reportsDir, `.tmp-${teamName}-task${taskId}-${workerName2}-${ts}-${process.pid}`);
   const checksum = (0, import_crypto5.createHash)("md5").update(`${teamName} ${taskId} ${body}`).digest("hex").slice(0, 8);
   const content = [
     "---",
@@ -9156,7 +9176,7 @@ async function processCliWorkerVerdicts(teamName, cwd) {
       taskId: targetTaskId,
       workerName: worker.name,
       status: terminalStatus,
-      result: payload.summary ? `${payload.verdict.toUpperCase()} (${payload.role ?? "reviewer"}): ${payload.summary}${payload.findings ? "\n\nFindings:\n" + payload.findings : ""}` : void 0,
+      result: payload.summary ? `${payload.verdict.toUpperCase()} (${payload.role ?? "reviewer"}): ${payload.summary}${payload.findings ? "\n\n## Findings\n\n" + (Array.isArray(payload.findings) ? payload.findings.map((f) => typeof f === "string" ? `- ${f}` : `- ${JSON.stringify(f)}`).join("\n") : String(payload.findings)) : ""}` : void 0,
       cwd
     }).catch(() => {
     });

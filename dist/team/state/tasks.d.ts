@@ -47,5 +47,13 @@ export declare function listTasks(teamName: string, cwd: string, deps: {
     isTeamTask: (value: unknown) => value is TeamTask;
     normalizeTask: (task: TeamTask) => TeamTaskV2;
 }): Promise<TeamTask[]>;
+export declare const CLAIM_TTL_MS: number;
+export declare const CLAIM_GRACE_MS: number;
+/**
+ * Renew the claim lease for a task owned by the given worker.
+ * Called from the heartbeat path so long-running tasks stay claimed.
+ * Does NOT require the claim token — only the worker identity.
+ */
+export declare function renewTaskClaim(teamName: string, taskId: string, workerName: string, cwd: string, deps: TransitionDeps): Promise<boolean>;
 export {};
 //# sourceMappingURL=tasks.d.ts.map

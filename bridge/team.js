@@ -452,7 +452,7 @@ async function transitionTaskStatus(taskId, from, to, claimToken, terminalData, 
     if (!v.owner || !v.claim || v.claim.owner !== v.owner || v.claim.token !== claimToken) {
       return { ok: false, error: "claim_conflict" };
     }
-    if (new Date(v.claim.leased_until) <= /* @__PURE__ */ new Date()) return { ok: false, error: "lease_expired" };
+    if (new Date(v.claim.leased_until).getTime() + CLAIM_GRACE_MS <= Date.now()) return { ok: false, error: "lease_expired" };
     const normalizedResult = typeof terminalData?.result === "string" ? terminalData.result : void 0;
     const normalizedError = typeof terminalData?.error === "string" ? terminalData.error : void 0;
     const delegationCompliance = to === "completed" ? extractDelegationComplianceEvidence(v, terminalData) : null;
@@ -512,7 +512,7 @@ async function releaseTaskClaim(taskId, claimToken, _workerName, deps) {
     if (!v.owner || !v.claim || v.claim.owner !== v.owner || v.claim.token !== claimToken) {
       return { ok: false, error: "claim_conflict" };
     }
-    if (new Date(v.claim.leased_until) <= /* @__PURE__ */ new Date()) return { ok: false, error: "lease_expired" };
+    if (new Date(v.claim.leased_until).getTime() + CLAIM_GRACE_MS <= Date.now()) return { ok: false, error: "lease_expired" };
     const updated = {
       ...v,
       status: "pending",
@@ -557,9 +557,12 @@ async function listTasks(teamName, cwd, deps) {
   tasks.sort((a, b) => Number(a.id) - Number(b.id));
   return tasks;
 }
+var CLAIM_TTL_MS, CLAIM_GRACE_MS;
 var init_tasks = __esm({
   "src/team/state/tasks.ts"() {
     "use strict";
+    CLAIM_TTL_MS = 15 * 60 * 1e3;
+    CLAIM_GRACE_MS = 5 * 60 * 1e3;
   }
 });
 
@@ -8057,26 +8060,45 @@ __export(report_persistence_exports, {
 import { mkdir as mkdir10, readFile as readFile10, writeFile as writeFile7 } from "fs/promises";
 import { join as join23 } from "path";
 import { existsSync as existsSync20 } from "fs";
-import { createHash as createHash3 } from "crypto";
+import { createHash as createHash3, randomBytes } from "crypto";
 async function captureTaskReport(params) {
   const { teamName, taskId, workerName, status, result, error, cwd } = params;
   const reportsDir = join23(cwd, REPORTS_DIR);
   let body = "";
   let source = "";
-  const workerReportPath = join23(
-    cwd,
-    ".omc",
-    "state",
-    "team",
-    teamName,
-    "workers",
-    workerName,
-    `report-task-${taskId}.md`
-  );
-  if (existsSync20(workerReportPath)) {
+  const canonicalPath = join23(cwd, ".omc", "reports", `task-${taskId}-${workerName}.md`);
+  if (existsSync20(canonicalPath)) {
     try {
-      body = await readFile10(workerReportPath, "utf-8");
-      source = "worker-report-file";
+      body = await readFile10(canonicalPath, "utf-8");
+      source = "canonical-report";
+    } catch {
+    }
+  }
+  if (!body) {
+    const workerReportPath = join23(cwd, ".omc", "state", "team", teamName, "workers", workerName, `report-task-${taskId}.md`);
+    if (existsSync20(workerReportPath)) {
+      try {
+        body = await readFile10(workerReportPath, "utf-8");
+        source = "worker-report-file";
+      } catch {
+      }
+    }
+  }
+  if (!body) {
+    try {
+      const reportsDir2 = join23(cwd, ".omc", "reports");
+      if (existsSync20(reportsDir2)) {
+        const { readdir: rd } = await import("fs/promises");
+        const files = await rd(reportsDir2);
+        const match = files.filter((f) => f.startsWith(`task-${taskId}-${workerName}`) || f.startsWith(`${teamName}-task${taskId}-`)).sort().pop();
+        if (match) {
+          try {
+            body = await readFile10(join23(reportsDir2, match), "utf-8");
+            source = "scanned-reports-dir";
+          } catch {
+          }
+        }
+      }
     } catch {
     }
   }
@@ -8090,9 +8112,10 @@ async function captureTaskReport(params) {
   }
   if (!body) return null;
   await mkdir10(reportsDir, { recursive: true });
-  const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "").slice(0, 15) + "Z";
-  const reportFile = join23(reportsDir, `${teamName}-task${taskId}-${ts}.md`);
-  const tmpFile = join23(reportsDir, `.tmp-${teamName}-task${taskId}-${ts}-${process.pid}`);
+  const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[T:-]/g, "").slice(0, 17);
+  const suffix = randomBytes(3).toString("hex");
+  const reportFile = join23(reportsDir, `${teamName}-task${taskId}-${workerName}-${ts}-${suffix}.md`);
+  const tmpFile = join23(reportsDir, `.tmp-${teamName}-task${taskId}-${workerName}-${ts}-${process.pid}`);
   const checksum = createHash3("md5").update(`${teamName} ${taskId} ${body}`).digest("hex").slice(0, 8);
   const content = [
     "---",
@@ -9305,7 +9328,7 @@ async function processCliWorkerVerdicts(teamName, cwd) {
       taskId: targetTaskId,
       workerName: worker.name,
       status: terminalStatus,
-      result: payload.summary ? `${payload.verdict.toUpperCase()} (${payload.role ?? "reviewer"}): ${payload.summary}${payload.findings ? "\n\nFindings:\n" + payload.findings : ""}` : void 0,
+      result: payload.summary ? `${payload.verdict.toUpperCase()} (${payload.role ?? "reviewer"}): ${payload.summary}${payload.findings ? "\n\n## Findings\n\n" + (Array.isArray(payload.findings) ? payload.findings.map((f) => typeof f === "string" ? `- ${f}` : `- ${JSON.stringify(f)}`).join("\n") : String(payload.findings)) : ""}` : void 0,
       cwd
     }).catch(() => {
     });
@@ -10629,6 +10652,7 @@ async function executeTeamApiOperation(operation, args, fallbackCwd) {
           return { ok: false, operation, error: { code: "invalid_input", message: "expected_version must be a positive integer when provided" } };
         }
         const result = await teamClaimTask(teamName, taskId, worker, rawExpectedVersion ?? null, cwd);
+        if (!result.ok) return { ok: false, operation, error: { code: "claim_failed", message: result.error ?? "claim failed" } };
         return { ok: true, operation, data: result };
       }
       case "transition-task-status": {
@@ -10690,6 +10714,7 @@ async function executeTeamApiOperation(operation, args, fallbackCwd) {
           }).catch(() => {
           });
         }
+        if (!result.ok) return { ok: false, operation, error: { code: "transition_failed", message: result.error ?? "transition failed" } };
         return { ok: true, operation, data: result };
       }
       case "release-task-claim": {
@@ -10701,6 +10726,7 @@ async function executeTeamApiOperation(operation, args, fallbackCwd) {
           return { ok: false, operation, error: { code: "invalid_input", message: "team_name, task_id, claim_token, worker are required" } };
         }
         const result = await teamReleaseTaskClaim(teamName, taskId, claimToken, worker, cwd);
+        if (!result.ok) return { ok: false, operation, error: { code: "release_failed", message: result.error ?? "release failed" } };
         return { ok: true, operation, data: result };
       }
       case "read-config": {

@@ -1356,7 +1356,7 @@ export async function processCliWorkerVerdicts(teamName, cwd) {
             workerName: worker.name,
             status: terminalStatus,
             result: payload.summary
-                ? `${payload.verdict.toUpperCase()} (${payload.role ?? 'reviewer'}): ${payload.summary}${payload.findings ? '\n\nFindings:\n' + payload.findings : ''}`
+                ? `${payload.verdict.toUpperCase()} (${payload.role ?? 'reviewer'}): ${payload.summary}${payload.findings ? '\n\n## Findings\n\n' + (Array.isArray(payload.findings) ? payload.findings.map((f) => typeof f === 'string' ? `- ${f}` : `- ${JSON.stringify(f)}`).join('\n') : String(payload.findings)) : ''}`
                 : undefined,
             cwd,
         }).catch(() => { });

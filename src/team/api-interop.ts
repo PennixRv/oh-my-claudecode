@@ -807,6 +807,7 @@ export async function executeTeamApiOperation(
           return { ok: false, operation, error: { code: 'invalid_input', message: 'expected_version must be a positive integer when provided' } };
         }
         const result = await teamClaimTask(teamName, taskId, worker, (rawExpectedVersion as number | undefined) ?? null, cwd);
+        if (!result.ok) return { ok: false, operation, error: { code: 'claim_failed', message: result.error ?? 'claim failed' } };
         return { ok: true, operation, data: result as unknown as Record<string, unknown> };
       }
       case 'transition-task-status': {
@@ -868,6 +869,7 @@ export async function executeTeamApiOperation(
             cwd,
           }).catch(() => { /* non-blocking */ });
         }
+        if (!result.ok) return { ok: false, operation, error: { code: 'transition_failed', message: result.error ?? 'transition failed' } };
         return { ok: true, operation, data: result as unknown as Record<string, unknown> };
       }
       case 'release-task-claim': {
@@ -879,6 +881,7 @@ export async function executeTeamApiOperation(
           return { ok: false, operation, error: { code: 'invalid_input', message: 'team_name, task_id, claim_token, worker are required' } };
         }
         const result = await teamReleaseTaskClaim(teamName, taskId, claimToken, worker, cwd);
+        if (!result.ok) return { ok: false, operation, error: { code: 'release_failed', message: result.error ?? 'release failed' } };
         return { ok: true, operation, data: result as unknown as Record<string, unknown> };
       }
       case 'read-config': {

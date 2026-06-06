@@ -173,7 +173,7 @@ export async function transitionTaskStatus(
     if (!v.owner || !v.claim || v.claim.owner !== v.owner || v.claim.token !== claimToken) {
       return { ok: false as const, error: 'claim_conflict' as const };
     }
-    if (new Date(v.claim.leased_until) <= new Date()) return { ok: false as const, error: 'lease_expired' as const };
+    if (new Date(v.claim.leased_until).getTime() + CLAIM_GRACE_MS <= Date.now()) return { ok: false as const, error: 'lease_expired' as const };
 
     const normalizedResult = typeof terminalData?.result === 'string' ? terminalData.result : undefined;
     const normalizedError = typeof terminalData?.error === 'string' ? terminalData.error : undefined;
@@ -254,7 +254,7 @@ export async function releaseTaskClaim(
     if (!v.owner || !v.claim || v.claim.owner !== v.owner || v.claim.token !== claimToken) {
       return { ok: false as const, error: 'claim_conflict' as const };
     }
-    if (new Date(v.claim.leased_until) <= new Date()) return { ok: false as const, error: 'lease_expired' as const };
+    if (new Date(v.claim.leased_until).getTime() + CLAIM_GRACE_MS <= Date.now()) return { ok: false as const, error: 'lease_expired' as const };
 
     const updated: TeamTaskV2 = {
       ...v,
@@ -312,4 +312,33 @@ export async function listTasks(
   }
   tasks.sort((a, b) => Number(a.id) - Number(b.id));
   return tasks;
+}
+
+export const CLAIM_TTL_MS = 15 * 60 * 1000;
+export const CLAIM_GRACE_MS = 5 * 60 * 1000;
+
+/**
+ * Renew the claim lease for a task owned by the given worker.
+ * Called from the heartbeat path so long-running tasks stay claimed.
+ * Does NOT require the claim token — only the worker identity.
+ */
+export async function renewTaskClaim(
+  teamName: string, taskId: string, workerName: string, cwd: string, deps: TransitionDeps,
+): Promise<boolean> {
+  const v = await deps.readTask(teamName, taskId, cwd);
+  if (!v || v.owner !== workerName || !v.claim || v.claim.owner !== workerName) return false;
+  if (v.status !== 'in_progress') return false;
+
+  const now = Date.now();
+  const leasedUntil = new Date(v.claim.leased_until).getTime();
+  // Only renew if lease is past half-life (7.5 min) to avoid excessive writes
+  if (now - leasedUntil < CLAIM_TTL_MS / 2) return true;
+
+  const updated: TeamTaskV2 = {
+    ...v,
+    claim: { ...v.claim, leased_until: new Date(now + CLAIM_TTL_MS).toISOString() },
+    version: (v.version ?? 0) + 1,
+  };
+  await deps.writeAtomic(deps.taskFilePath(teamName, taskId, cwd), JSON.stringify(updated, null, 2));
+  return true;
 }

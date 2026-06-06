@@ -28264,7 +28264,7 @@ async function transitionTaskStatus(taskId, from, to, claimToken, terminalData, 
     if (!v.owner || !v.claim || v.claim.owner !== v.owner || v.claim.token !== claimToken) {
       return { ok: false, error: "claim_conflict" };
     }
-    if (new Date(v.claim.leased_until) <= /* @__PURE__ */ new Date()) return { ok: false, error: "lease_expired" };
+    if (new Date(v.claim.leased_until).getTime() + CLAIM_GRACE_MS <= Date.now()) return { ok: false, error: "lease_expired" };
     const normalizedResult = typeof terminalData?.result === "string" ? terminalData.result : void 0;
     const normalizedError = typeof terminalData?.error === "string" ? terminalData.error : void 0;
     const delegationCompliance = to === "completed" ? extractDelegationComplianceEvidence(v, terminalData) : null;
@@ -28324,7 +28324,7 @@ async function releaseTaskClaim(taskId, claimToken, _workerName, deps) {
     if (!v.owner || !v.claim || v.claim.owner !== v.owner || v.claim.token !== claimToken) {
       return { ok: false, error: "claim_conflict" };
     }
-    if (new Date(v.claim.leased_until) <= /* @__PURE__ */ new Date()) return { ok: false, error: "lease_expired" };
+    if (new Date(v.claim.leased_until).getTime() + CLAIM_GRACE_MS <= Date.now()) return { ok: false, error: "lease_expired" };
     const updated = {
       ...v,
       status: "pending",
@@ -28369,7 +28369,7 @@ async function listTasks(teamName, cwd2, deps) {
   tasks.sort((a, b) => Number(a.id) - Number(b.id));
   return tasks;
 }
-var import_crypto13, import_path81, import_fs65, import_promises6;
+var import_crypto13, import_path81, import_fs65, import_promises6, CLAIM_TTL_MS, CLAIM_GRACE_MS;
 var init_tasks = __esm({
   "src/team/state/tasks.ts"() {
     "use strict";
@@ -28377,6 +28377,8 @@ var init_tasks = __esm({
     import_path81 = require("path");
     import_fs65 = require("fs");
     import_promises6 = require("fs/promises");
+    CLAIM_TTL_MS = 15 * 60 * 1e3;
+    CLAIM_GRACE_MS = 5 * 60 * 1e3;
   }
 });
 
@@ -33776,20 +33778,39 @@ async function captureTaskReport(params) {
   const reportsDir = (0, import_path91.join)(cwd2, REPORTS_DIR);
   let body = "";
   let source = "";
-  const workerReportPath = (0, import_path91.join)(
-    cwd2,
-    ".omc",
-    "state",
-    "team",
-    teamName,
-    "workers",
-    workerName2,
-    `report-task-${taskId}.md`
-  );
-  if ((0, import_fs73.existsSync)(workerReportPath)) {
+  const canonicalPath = (0, import_path91.join)(cwd2, ".omc", "reports", `task-${taskId}-${workerName2}.md`);
+  if ((0, import_fs73.existsSync)(canonicalPath)) {
     try {
-      body = await (0, import_promises16.readFile)(workerReportPath, "utf-8");
-      source = "worker-report-file";
+      body = await (0, import_promises16.readFile)(canonicalPath, "utf-8");
+      source = "canonical-report";
+    } catch {
+    }
+  }
+  if (!body) {
+    const workerReportPath = (0, import_path91.join)(cwd2, ".omc", "state", "team", teamName, "workers", workerName2, `report-task-${taskId}.md`);
+    if ((0, import_fs73.existsSync)(workerReportPath)) {
+      try {
+        body = await (0, import_promises16.readFile)(workerReportPath, "utf-8");
+        source = "worker-report-file";
+      } catch {
+      }
+    }
+  }
+  if (!body) {
+    try {
+      const reportsDir2 = (0, import_path91.join)(cwd2, ".omc", "reports");
+      if ((0, import_fs73.existsSync)(reportsDir2)) {
+        const { readdir: rd } = await import("fs/promises");
+        const files = await rd(reportsDir2);
+        const match = files.filter((f) => f.startsWith(`task-${taskId}-${workerName2}`) || f.startsWith(`${teamName}-task${taskId}-`)).sort().pop();
+        if (match) {
+          try {
+            body = await (0, import_promises16.readFile)((0, import_path91.join)(reportsDir2, match), "utf-8");
+            source = "scanned-reports-dir";
+          } catch {
+          }
+        }
+      }
     } catch {
     }
   }
@@ -33803,9 +33824,10 @@ async function captureTaskReport(params) {
   }
   if (!body) return null;
   await (0, import_promises16.mkdir)(reportsDir, { recursive: true });
-  const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "").slice(0, 15) + "Z";
-  const reportFile = (0, import_path91.join)(reportsDir, `${teamName}-task${taskId}-${ts}.md`);
-  const tmpFile = (0, import_path91.join)(reportsDir, `.tmp-${teamName}-task${taskId}-${ts}-${process.pid}`);
+  const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[T:-]/g, "").slice(0, 17);
+  const suffix = (0, import_crypto17.randomBytes)(3).toString("hex");
+  const reportFile = (0, import_path91.join)(reportsDir, `${teamName}-task${taskId}-${workerName2}-${ts}-${suffix}.md`);
+  const tmpFile = (0, import_path91.join)(reportsDir, `.tmp-${teamName}-task${taskId}-${workerName2}-${ts}-${process.pid}`);
   const checksum = (0, import_crypto17.createHash)("md5").update(`${teamName} ${taskId} ${body}`).digest("hex").slice(0, 8);
   const content = [
     "---",
@@ -35017,7 +35039,7 @@ async function processCliWorkerVerdicts(teamName, cwd2) {
       taskId: targetTaskId,
       workerName: worker.name,
       status: terminalStatus,
-      result: payload.summary ? `${payload.verdict.toUpperCase()} (${payload.role ?? "reviewer"}): ${payload.summary}${payload.findings ? "\n\nFindings:\n" + payload.findings : ""}` : void 0,
+      result: payload.summary ? `${payload.verdict.toUpperCase()} (${payload.role ?? "reviewer"}): ${payload.summary}${payload.findings ? "\n\n## Findings\n\n" + (Array.isArray(payload.findings) ? payload.findings.map((f) => typeof f === "string" ? `- ${f}` : `- ${JSON.stringify(f)}`).join("\n") : String(payload.findings)) : ""}` : void 0,
       cwd: cwd2
     }).catch(() => {
     });
@@ -89427,6 +89449,7 @@ async function executeTeamApiOperation(operation, args, fallbackCwd) {
           return { ok: false, operation, error: { code: "invalid_input", message: "expected_version must be a positive integer when provided" } };
         }
         const result = await teamClaimTask(teamName, taskId, worker, rawExpectedVersion ?? null, cwd2);
+        if (!result.ok) return { ok: false, operation, error: { code: "claim_failed", message: result.error ?? "claim failed" } };
         return { ok: true, operation, data: result };
       }
       case "transition-task-status": {
@@ -89488,6 +89511,7 @@ async function executeTeamApiOperation(operation, args, fallbackCwd) {
           }).catch(() => {
           });
         }
+        if (!result.ok) return { ok: false, operation, error: { code: "transition_failed", message: result.error ?? "transition failed" } };
         return { ok: true, operation, data: result };
       }
       case "release-task-claim": {
@@ -89499,6 +89523,7 @@ async function executeTeamApiOperation(operation, args, fallbackCwd) {
           return { ok: false, operation, error: { code: "invalid_input", message: "team_name, task_id, claim_token, worker are required" } };
         }
         const result = await teamReleaseTaskClaim(teamName, taskId, claimToken, worker, cwd2);
+        if (!result.ok) return { ok: false, operation, error: { code: "release_failed", message: result.error ?? "release failed" } };
         return { ok: true, operation, data: result };
       }
       case "read-config": {

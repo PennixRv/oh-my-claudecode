@@ -5,7 +5,7 @@
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { existsSync } from 'fs';
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 
 const REPORTS_DIR = '.omc/reports/auto';
 const MAX_AGE_DAYS = 7;
@@ -28,35 +28,48 @@ export async function captureTaskReport(params: ReportCaptureParams): Promise<st
   const { teamName, taskId, workerName, status, result, error, cwd } = params;
   const reportsDir = join(cwd, REPORTS_DIR);
 
-  // Gather body from worker report file, result, or error (priority order)
+  // Gather body from: canonical path → worker report file → result → error
   let body = '';
   let source = '';
 
-  const workerReportPath = join(
-    cwd, '.omc', 'state', 'team', teamName, 'workers', workerName,
-    `report-task-${taskId}.md`,
-  );
-  if (existsSync(workerReportPath)) {
+  // 1. Canonical worker report path (.omc/reports/task-<id>-<worker>.md)
+  const canonicalPath = join(cwd, '.omc', 'reports', `task-${taskId}-${workerName}.md`);
+  if (existsSync(canonicalPath)) {
+    try { body = await readFile(canonicalPath, 'utf-8'); source = 'canonical-report'; } catch { /* fall through */ }
+  }
+  // 2. Legacy worker-dir path
+  if (!body) {
+    const workerReportPath = join(cwd, '.omc', 'state', 'team', teamName, 'workers', workerName, `report-task-${taskId}.md`);
+    if (existsSync(workerReportPath)) {
+      try { body = await readFile(workerReportPath, 'utf-8'); source = 'worker-report-file'; } catch { /* fall through */ }
+    }
+  }
+  // 3. Auto-scan .omc/reports/ for any team-task match
+  if (!body) {
     try {
-      body = await readFile(workerReportPath, 'utf-8');
-      source = 'worker-report-file';
-    } catch { /* fall through */ }
+      const reportsDir2 = join(cwd, '.omc', 'reports');
+      if (existsSync(reportsDir2)) {
+        const { readdir: rd } = await import('fs/promises');
+        const files = await rd(reportsDir2);
+        const match = files.filter(f => f.startsWith(`task-${taskId}-${workerName}`) || f.startsWith(`${teamName}-task${taskId}-`)).sort().pop();
+        if (match) {
+          try { body = await readFile(join(reportsDir2, match), 'utf-8'); source = 'scanned-reports-dir'; } catch { /* fall through */ }
+        }
+      }
+    } catch { /* scan failure — fall through */ }
   }
-  if (!body && result) {
-    body = result;
-    source = 'result';
-  }
-  if (!body && error) {
-    body = `error: ${error}`;
-    source = 'error';
-  }
+  // 4. result field
+  if (!body && result) { body = result; source = 'result'; }
+  // 5. error field
+  if (!body && error) { body = `error: ${error}`; source = 'error'; }
   if (!body) return null;
 
   await mkdir(reportsDir, { recursive: true });
 
-  const ts = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15) + 'Z';
-  const reportFile = join(reportsDir, `${teamName}-task${taskId}-${ts}.md`);
-  const tmpFile = join(reportsDir, `.tmp-${teamName}-task${taskId}-${ts}-${process.pid}`);
+  const ts = new Date().toISOString().replace(/[T:-]/g, '').slice(0, 17);
+  const suffix = randomBytes(3).toString('hex');
+  const reportFile = join(reportsDir, `${teamName}-task${taskId}-${workerName}-${ts}-${suffix}.md`);
+  const tmpFile = join(reportsDir, `.tmp-${teamName}-task${taskId}-${workerName}-${ts}-${process.pid}`);
 
   const checksum = createHash('md5').update(`${teamName} ${taskId} ${body}`).digest('hex').slice(0, 8);
 
