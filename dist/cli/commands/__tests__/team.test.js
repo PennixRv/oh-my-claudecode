@@ -422,7 +422,7 @@ describe('parseTeamArgs comma-separated multi-type specs', () => {
         expect(parsed.task).toBe('compare');
     });
     it('throws on total count exceeding maximum', () => {
-        expect(() => parseTeamArgs(['15:codex,10:gemini', 'big task'])).toThrow('exceeds maximum 5');
+        expect(() => parseTeamArgs(['15:codex,10:gemini', 'big task'])).toThrow('Invalid worker count');
     });
 });
 describe('buildStartupTasks', () => {
