@@ -8617,7 +8617,8 @@ async function spawnV2Worker(opts) {
     );
     for (let attempt = 1; !settled && attempt <= 4; attempt++) {
       try {
-        await sendTeamPaneKey(paneId, "Enter");
+        await sendTeamPaneKey(paneId, "C-u");
+        await sendToWorker(opts.teamName, paneId, inboxTriggerMessage);
       } catch {
         break;
       }

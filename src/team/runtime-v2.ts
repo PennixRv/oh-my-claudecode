@@ -878,13 +878,11 @@ async function spawnV2Worker(opts: SpawnV2WorkerOptions): Promise<SpawnV2WorkerR
     // Claude Code v2.1.x sometimes swallows the Enter key sent immediately
     // after a fresh pane reports ready — the TUI is still binding input
     // handlers, so the dispatch message lands in the input buffer but is
-    // never submitted. By the time the evidence wait above finishes, the
-    // TUI is reliably accepting input. Resubmit Enter directly (the prompt
-    // is still sitting in the input buffer) and re-check evidence. Bounded
-    // retries so a truly hung worker still fails fast.
+    // never submitted. Clear input, re-send trigger message and submit.
     for (let attempt = 1; !settled && attempt <= 4; attempt++) {
       try {
-        await sendTeamPaneKey(paneId, 'Enter');
+        await sendTeamPaneKey(paneId, 'C-u');  // clear input buffer
+        await sendToWorker(opts.teamName, paneId, inboxTriggerMessage);
       } catch {
         break;
       }
