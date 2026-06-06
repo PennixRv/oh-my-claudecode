@@ -5032,7 +5032,8 @@ function getWorkerEnv(teamName, workerName, agentType, env = process.env) {
   const workerEnv = {
     OMC_TEAM_WORKER: `${teamName}/${workerName}`,
     OMC_TEAM_NAME: teamName,
-    OMC_WORKER_AGENT_TYPE: agentType
+    OMC_WORKER_AGENT_TYPE: agentType,
+    OMC_LEADER_MAILBOX_INJECT: "0"
   };
   for (const key of WORKER_MODEL_ENV_ALLOWLIST) {
     const value = env[key];

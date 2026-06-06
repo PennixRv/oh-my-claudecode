@@ -12,10 +12,10 @@
 import { TaskTool } from '../hooks/beads-context/types.js';
 import type { NotificationConfig } from '../notifications/types.js';
 /** GitHub repository information */
-export declare const REPO_OWNER = "Yeachan-Heo";
+export declare const REPO_OWNER = "PennixRv";
 export declare const REPO_NAME = "oh-my-claudecode";
-export declare const GITHUB_API_URL = "https://api.github.com/repos/Yeachan-Heo/oh-my-claudecode";
-export declare const GITHUB_RAW_URL = "https://raw.githubusercontent.com/Yeachan-Heo/oh-my-claudecode";
+export declare const GITHUB_API_URL = "https://api.github.com/repos/PennixRv/oh-my-claudecode";
+export declare const GITHUB_RAW_URL = "https://raw.githubusercontent.com/PennixRv/oh-my-claudecode";
 export declare function shouldBlockStandaloneUpdateInCurrentSession(): boolean;
 export declare function syncPluginCache(verbose?: boolean): {
     synced: boolean;

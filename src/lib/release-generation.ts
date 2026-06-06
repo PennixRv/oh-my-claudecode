@@ -1,5 +1,5 @@
 import { execSync } from 'child_process';
-const DEFAULT_REPO_URL = 'https://github.com/Yeachan-Heo/oh-my-claudecode';
+const DEFAULT_REPO_URL = 'https://github.com/PennixRv/oh-my-claudecode';
 
 export interface ReleasePullRequest {
   number: string;
@@ -248,7 +248,7 @@ export function generateReleaseBody(
 
   body += `\n### Install / Update\n\n`;
   body += '```bash\n';
-  body += `npm install -g oh-my-claude-sisyphus@${version}\n`;
+  body += `npm install -g oh-my-claude-pennix@${version}\n`;
   body += '```\n\n';
   body += 'Or reinstall the plugin:\n```bash\nclaude /install-plugin oh-my-claudecode\n```\n';
 

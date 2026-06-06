@@ -10435,7 +10435,7 @@ function getGlobalInstalledPackageRoot() {
     if (!npmRoot) {
       return null;
     }
-    const globalPackageRoot = (0, import_path49.join)(npmRoot, "oh-my-claude-sisyphus");
+    const globalPackageRoot = (0, import_path49.join)(npmRoot, "oh-my-claude-pennix");
     return (0, import_fs37.existsSync)(globalPackageRoot) ? globalPackageRoot : null;
   } catch {
     return null;
@@ -11751,7 +11751,7 @@ function syncPluginCache(verbose = false) {
     if (!npmRoot) {
       throw new Error("npm root -g returned an empty path");
     }
-    const sourceRoot = (0, import_path50.join)(npmRoot, "oh-my-claude-sisyphus");
+    const sourceRoot = (0, import_path50.join)(npmRoot, "oh-my-claude-pennix");
     const packageJsonPath = (0, import_path50.join)(sourceRoot, "package.json");
     const packageJsonRaw = String((0, import_fs38.readFileSync)(packageJsonPath, "utf-8") ?? "");
     const packageMetadata = JSON.parse(packageJsonRaw);
@@ -11839,15 +11839,15 @@ function isTeamEnabled() {
 function getInstalledVersion() {
   if (!(0, import_fs38.existsSync)(VERSION_FILE2)) {
     try {
-      const result = (0, import_child_process14.execSync)("npm list -g oh-my-claude-sisyphus --json", {
+      const result = (0, import_child_process14.execSync)("npm list -g oh-my-claude-pennix --json", {
         encoding: "utf-8",
         timeout: 5e3,
         stdio: "pipe"
       });
       const data = JSON.parse(result);
-      if (data.dependencies?.["oh-my-claude-sisyphus"]?.version) {
+      if (data.dependencies?.["oh-my-claude-pennix"]?.version) {
         return {
-          version: data.dependencies["oh-my-claude-sisyphus"].version,
+          version: data.dependencies["oh-my-claude-pennix"].version,
           installedAt: (/* @__PURE__ */ new Date()).toISOString(),
           installMethod: "npm"
         };
@@ -12084,7 +12084,7 @@ async function performUpdate(options) {
     const newVersion = release.tag_name.replace(/^v/, "");
     const claudeCodeBeforeUpdate = detectGlobalClaudeCodeInstall();
     try {
-      (0, import_child_process14.execSync)("npm install -g oh-my-claude-sisyphus@latest", npmExecOptions(options?.verbose ?? false));
+      (0, import_child_process14.execSync)("npm install -g oh-my-claude-pennix@latest", npmExecOptions(options?.verbose ?? false));
       try {
         restoreGlobalClaudeCodeIfNeeded(claudeCodeBeforeUpdate, options?.verbose ?? false);
       } catch (restoreError) {
@@ -12159,7 +12159,7 @@ async function performUpdate(options) {
     } catch (npmError) {
       throw new Error(
         `Auto-update via npm failed. Please run manually:
-  npm install -g oh-my-claude-sisyphus@latest
+  npm install -g oh-my-claude-pennix@latest
 Or use: /plugin install oh-my-claudecode
 Error: ${npmError instanceof Error ? npmError.message : npmError}`
       );
@@ -12389,7 +12389,7 @@ var init_auto_update = __esm({
     init_paths();
     init_security_config();
     init_paths3();
-    REPO_OWNER = "Yeachan-Heo";
+    REPO_OWNER = "PennixRv";
     REPO_NAME = "oh-my-claudecode";
     GITHUB_API_URL = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}`;
     GITHUB_RAW_URL = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}`;
@@ -29714,7 +29714,8 @@ function getWorkerEnv(teamName, workerName2, agentType, env2 = process.env) {
   const workerEnv = {
     OMC_TEAM_WORKER: `${teamName}/${workerName2}`,
     OMC_TEAM_NAME: teamName,
-    OMC_WORKER_AGENT_TYPE: agentType
+    OMC_WORKER_AGENT_TYPE: agentType,
+    OMC_LEADER_MAILBOX_INJECT: "0"
   };
   for (const key of WORKER_MODEL_ENV_ALLOWLIST) {
     const value = env2[key];

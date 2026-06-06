@@ -17,7 +17,7 @@ Note: All `~/.claude/...` paths in this guide respect `CLAUDE_CONFIG_DIR` when t
 Choose this setup flow when the user wants to **install, refresh, or repair OMC itself**.
 
 - Marketplace/plugin install users should land here after `/plugin install oh-my-claudecode`
-- npm users should land here after `npm i -g oh-my-claude-sisyphus@latest`
+- npm users should land here after `npm i -g oh-my-claude-pennix@latest`
 - local-dev and worktree users should land here after updating the checked-out repo and rerunning setup
 
 ## Flag Parsing

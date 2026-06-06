@@ -1021,7 +1021,7 @@ function getGlobalInstalledPackageRoot() {
         if (!npmRoot) {
             return null;
         }
-        const globalPackageRoot = join(npmRoot, 'oh-my-claude-sisyphus');
+        const globalPackageRoot = join(npmRoot, 'oh-my-claude-pennix');
         return existsSync(globalPackageRoot) ? globalPackageRoot : null;
     }
     catch {
