@@ -2752,7 +2752,8 @@ async function waitForPaneReady(paneId, opts = {}) {
   return false;
 }
 function paneTailContainsLiteralLine(captured, text) {
-  return normalizeTmuxCapture(captured).includes(normalizeTmuxCapture(text));
+  const lines = captured.split("\n").filter((l) => l.trim().length > 0).slice(-40);
+  return normalizeTmuxCapture(lines.join("\n")).includes(normalizeTmuxCapture(text));
 }
 async function paneInCopyMode(paneId) {
   if (isCmuxSurfaceTarget(paneId)) return false;

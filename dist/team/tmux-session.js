@@ -903,7 +903,12 @@ export async function waitForPaneReady(paneId, opts = {}) {
     return false;
 }
 function paneTailContainsLiteralLine(captured, text) {
-    return normalizeTmuxCapture(captured).includes(normalizeTmuxCapture(text));
+    // Only check the last 40 lines of the capture, not the full scrollback.
+    // After send-keys -l + C-m submission, the trigger text disappears from
+    // the input line but stays in scrollback history. Searching the entire
+    // capture would incorrectly report the text as still visible.
+    const lines = captured.split('\n').filter((l) => l.trim().length > 0).slice(-40);
+    return normalizeTmuxCapture(lines.join('\n')).includes(normalizeTmuxCapture(text));
 }
 async function paneInCopyMode(paneId) {
     if (isCmuxSurfaceTarget(paneId))
