@@ -18361,7 +18361,8 @@ async function sendToWorker(_sessionName, paneId, message) {
     }
     const isStartupInboxTrigger = /(?:^|[\\/])inbox\.md\b/.test(message) || message.includes(".omc/state/team/");
     const looksLikeCodexPane = /OpenAI Codex\b/i.test(initialCapture);
-    if (isStartupInboxTrigger && looksLikeCodexPane) {
+    const looksLikeClaudePane = /Claude Code\b/i.test(initialCapture);
+    if (isStartupInboxTrigger && (looksLikeCodexPane || looksLikeClaudePane)) {
       await sleep(300);
       const settledCapture = await waitForReadyPaneCapture(paneId, { timeoutMs: 1500, pollIntervalMs: 200 });
       if (settledCapture) {

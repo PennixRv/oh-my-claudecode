@@ -975,10 +975,11 @@ export async function sendToWorker(_sessionName, paneId, message) {
         }
         const isStartupInboxTrigger = /(?:^|[\\/])inbox\.md\b/.test(message) || message.includes('.omc/state/team/');
         const looksLikeCodexPane = /OpenAI Codex\b/i.test(initialCapture);
-        if (isStartupInboxTrigger && looksLikeCodexPane) {
-            // Codex can show a prompt a fraction before the TUI has fully rebound
-            // input handlers. Give fresh startup panes one short settle window before
-            // the first inbox injection, matching the old wrapper's delayed dispatch.
+        const looksLikeClaudePane = /Claude Code\b/i.test(initialCapture);
+        if (isStartupInboxTrigger && (looksLikeCodexPane || looksLikeClaudePane)) {
+            // Freshly respawned Claude/Codex panes can show a prompt before the
+            // TUI has fully rebound input handlers. Give a short settle window
+            // before the first inbox injection, matching the old wrapper's delay.
             await sleep(300);
             const settledCapture = await waitForReadyPaneCapture(paneId, { timeoutMs: 1_500, pollIntervalMs: 200 });
             if (settledCapture) {

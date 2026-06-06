@@ -876,13 +876,12 @@ async function spawnV2Worker(opts: SpawnV2WorkerOptions): Promise<SpawnV2WorkerR
       6,
     );
     // Claude Code v2.1.x sometimes swallows the Enter key sent immediately
-    // after a fresh pane reports ready — the TUI is still binding input
-    // handlers, so the dispatch message lands in the input buffer but is
-    // never submitted. Clear input, re-send trigger message and submit.
+    // after a fresh pane reports ready. The sendToWorker settle window
+    // (tmux-session.ts) now covers both Claude and Codex startup. If the
+    // initial submission was still swallowed, resubmit Enter directly.
     for (let attempt = 1; !settled && attempt <= 4; attempt++) {
       try {
-        await sendTeamPaneKey(paneId, 'C-u');  // clear input buffer
-        await sendToWorker(opts.teamName, paneId, inboxTriggerMessage);
+        await sendTeamPaneKey(paneId, 'Enter');
       } catch {
         break;
       }
