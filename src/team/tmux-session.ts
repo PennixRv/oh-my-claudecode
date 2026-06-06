@@ -1155,12 +1155,11 @@ export async function sendToWorker(
       initialCapture = settledCapture;
     }
     const isStartupInboxTrigger = /(?:^|[\\/])inbox\.md\b/.test(message) || message.includes('.omc/state/team/');
-    const looksLikeCodexPane = /OpenAI Codex\b/i.test(initialCapture);
-    const looksLikeClaudePane = /Claude Code\b/i.test(initialCapture);
-    if (isStartupInboxTrigger && (looksLikeCodexPane || looksLikeClaudePane)) {
-      // Freshly respawned Claude/Codex panes can show a prompt before the
-      // TUI has fully rebound input handlers. Give a short settle window
-      // before the first inbox injection, matching the old wrapper's delay.
+    if (isStartupInboxTrigger) {
+      // Freshly respawned panes can show a prompt before the TUI has fully
+      // rebound input handlers. Claude's tail often only shows '❯' + status
+      // line without the 'Claude Code' banner, so we settle unconditionally
+      // for ALL startup inbox triggers — matching the old wrapper's delay.
       await sleep(300);
       const settledCapture = await waitForReadyPaneCapture(paneId, { timeoutMs: 1_500, pollIntervalMs: 200 });
       if (settledCapture) {

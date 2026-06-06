@@ -1206,9 +1206,7 @@ async function sendToWorker(_sessionName, paneId, message) {
       initialCapture = settledCapture;
     }
     const isStartupInboxTrigger = /(?:^|[\\/])inbox\.md\b/.test(message) || message.includes(".omc/state/team/");
-    const looksLikeCodexPane = /OpenAI Codex\b/i.test(initialCapture);
-    const looksLikeClaudePane = /Claude Code\b/i.test(initialCapture);
-    if (isStartupInboxTrigger && (looksLikeCodexPane || looksLikeClaudePane)) {
+    if (isStartupInboxTrigger) {
       await sleep(300);
       const settledCapture = await waitForReadyPaneCapture(paneId, { timeoutMs: 1500, pollIntervalMs: 200 });
       if (settledCapture) {
@@ -8329,7 +8327,7 @@ function generateRolePreface(agentType, role) {
   }
 }
 async function notifyStartupInbox(sessionName2, paneId, message) {
-  const notified = await notifyPaneWithRetry2(sessionName2, paneId, message, 1);
+  const notified = await notifyPaneWithRetry2(sessionName2, paneId, message, 3);
   return notified ? { ok: true, transport: "tmux_send_keys", reason: "worker_pane_notified" } : { ok: false, transport: "tmux_send_keys", reason: "worker_notify_failed" };
 }
 async function notifyPaneWithRetry2(sessionName2, paneId, message, maxAttempts = 6, retryDelayMs = 350) {
@@ -8528,8 +8526,7 @@ async function spawnV2Worker(opts) {
     );
     for (let attempt = 1; !settled && attempt <= 4; attempt++) {
       try {
-        await sendTeamPaneKey(paneId, "C-u");
-        await sendToWorker(opts.teamName, paneId, inboxTriggerMessage);
+        await sendTeamPaneKey(paneId, "Enter");
       } catch {
         break;
       }

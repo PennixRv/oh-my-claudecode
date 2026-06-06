@@ -343,10 +343,9 @@ function generateRolePreface(agentType, role) {
 // V2 worker spawning — direct tmux pane creation, no v1 delegation
 // ---------------------------------------------------------------------------
 async function notifyStartupInbox(sessionName, paneId, message) {
-    // Startup inbox triggers are only safe to type once after readiness. If the
-    // pane still rejects the send (for example Claude is showing a startup
-    // banner), repeated tmux send-keys calls append duplicate trigger text.
-    const notified = await notifyPaneWithRetry(sessionName, paneId, message, 1);
+    // The settle window in sendToWorker now runs before each attempt, so
+    // retrying is safe — the pane will be re-checked for readiness each time.
+    const notified = await notifyPaneWithRetry(sessionName, paneId, message, 3);
     return notified
         ? { ok: true, transport: 'tmux_send_keys', reason: 'worker_pane_notified' }
         : { ok: false, transport: 'tmux_send_keys', reason: 'worker_notify_failed' };
@@ -553,14 +552,11 @@ async function spawnV2Worker(opts) {
     }
     if (opts.agentType === 'claude') {
         let settled = await waitForWorkerStartupEvidence(opts.teamName, opts.workerName, opts.taskId, opts.cwd, 6);
-        // Claude Code v2.1.x sometimes swallows the Enter key sent immediately
-        // after a fresh pane reports ready. If the initial submission was
-        // swallowed, clear the input (C-u) and re-send the full trigger message
-        // (text + C-m) — not just Enter, which may also not submit.
+        // With the unconditional startup settle window, the trigger text should
+        // already be in the input box waiting for submission. Just resend Enter.
         for (let attempt = 1; !settled && attempt <= 4; attempt++) {
             try {
-                await sendTeamPaneKey(paneId, 'C-u');
-                await sendToWorker(opts.teamName, paneId, inboxTriggerMessage);
+                await sendTeamPaneKey(paneId, 'Enter');
             }
             catch {
                 break;
