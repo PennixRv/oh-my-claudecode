@@ -594,7 +594,7 @@ describe('runtime v2 startup inbox dispatch', () => {
         expect(requests).toHaveLength(1);
         expect(requests[0]?.status).toBe('failed');
         expect(requests[0]?.last_reason).toBe('worker_notify_failed');
-        expect(mocks.sendToWorker).toHaveBeenCalledTimes(1);
+        expect(mocks.sendToWorker).toHaveBeenCalledTimes(3);
     });
     it.skip('requires Claude startup evidence without resending the startup inbox', async () => {
         cwd = await mkdtemp(join(tmpdir(), 'omc-runtime-v2-claude-evidence-missing-'));
