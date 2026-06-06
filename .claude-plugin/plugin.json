@@ -1,6 +1,6 @@
 {
   "name": "oh-my-claude-pennix",
-  "version": "5.0.12",
+  "version": "5.0.13",
   "description": "Multi-agent orchestration system for Claude Code",
   "author": {
     "name": "oh-my-claudecode contributors"

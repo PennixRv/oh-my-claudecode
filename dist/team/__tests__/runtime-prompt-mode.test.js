@@ -213,7 +213,8 @@ describe('spawnWorkerForTask – prompt mode and interactive worker launch', () 
         const runtime = makeRuntime(cwd, 'codex');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
         const sendKeysCalls = tmuxCalls.args.filter(args => args[0] === 'send-keys' && args.includes('-l'));
-        expect(sendKeysCalls.length).toBe(2);
+        // respawn-pane replaces one send-keys for worker launch
+        expect(sendKeysCalls.length).toBe(1);
         const readInstructionCall = sendKeysCalls.find((args) => (args[args.length - 1] ?? '').includes('立即执行'));
         expect(readInstructionCall).toBeDefined();
         rmSync(cwd, { recursive: true, force: true });
@@ -299,7 +300,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         process.env.OMC_EXTERNAL_MODELS_DEFAULT_CODEX_MODEL = 'gpt-4o';
         const runtime = makeRuntime(cwd, 'codex');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane');
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         // Should contain --model flag with the model value
@@ -310,7 +311,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         process.env.OMC_CODEX_DEFAULT_MODEL = 'o3-mini';
         const runtime = makeRuntime(cwd, 'codex');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane');
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         expect(launchCmd).toContain("'--model'");
@@ -321,7 +322,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         process.env.OMC_CODEX_DEFAULT_MODEL = 'o3-mini';
         const runtime = makeRuntime(cwd, 'codex');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane');
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         expect(launchCmd).toContain("'--model' 'gpt-4o'");
@@ -330,7 +331,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         process.env.OMC_EXTERNAL_MODELS_DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';
         const runtime = makeRuntime(cwd, 'gemini');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane');
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         expect(launchCmd).toContain("'--model'");
@@ -340,7 +341,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         process.env.OMC_GEMINI_DEFAULT_MODEL = 'gemini-1.5-pro';
         const runtime = makeRuntime(cwd, 'gemini');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane');
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         expect(launchCmd).toContain("'--model'");
@@ -351,7 +352,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         process.env.OMC_GEMINI_DEFAULT_MODEL = 'gemini-1.5-pro';
         const runtime = makeRuntime(cwd, 'gemini');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane');
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         expect(launchCmd).toContain("'--model' 'gemini-2.0-flash'");
@@ -360,7 +361,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         process.env.OMC_EXTERNAL_MODELS_DEFAULT_GROK_MODEL = 'grok-4-fast';
         const runtime = makeRuntime(cwd, 'grok');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane');
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         expect(launchCmd).toContain("'--always-approve'");
@@ -371,7 +372,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         process.env.OMC_GROK_DEFAULT_MODEL = 'grok-code-fast-1';
         const runtime = makeRuntime(cwd, 'grok');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane');
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         expect(launchCmd).toContain("'--model'");
@@ -382,7 +383,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         process.env.OMC_GROK_DEFAULT_MODEL = 'grok-code-fast-1';
         const runtime = makeRuntime(cwd, 'grok');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane');
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         expect(launchCmd).toContain("'--model' 'grok-4-fast'");
@@ -398,7 +399,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         process.env.OMC_MODEL_MEDIUM = 'us.anthropic.claude-sonnet-4-6-v1:0';
         const runtime = makeRuntime(cwd, 'grok');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane');
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         // grok env vars unset → no --model flag at all. The grok IIFE branch returns
@@ -415,7 +416,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         process.env.OMC_EXTERNAL_MODELS_DEFAULT_CODEX_MODEL = 'gpt-4o';
         const runtime = makeRuntime(cwd, 'claude');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane');
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         // Claude worker should not have --model flag
@@ -425,7 +426,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         process.env.ANTHROPIC_MODEL = 'claude-opus-4-1';
         const runtime = makeRuntime(cwd, 'claude');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane');
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         expect(launchCmd).toContain('ANTHROPIC_MODEL=');
@@ -437,7 +438,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         process.env.ANTHROPIC_BASE_URL = 'https://gateway.example.invalid';
         const runtime = makeRuntime(cwd, 'claude');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane');
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         expect(launchCmd).toContain('CLAUDE_MODEL=');
@@ -458,7 +459,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         process.env.OMC_MODEL_LOW = 'claude-haiku-4-5-override';
         const runtime = makeRuntime(cwd, 'claude');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane');
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         expect(launchCmd).toContain('CLAUDE_CODE_USE_BEDROCK=');
@@ -488,7 +489,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     it('codex worker does not pass model flag when no env var is set', async () => {
         const runtime = makeRuntime(cwd, 'codex');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
-        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        const launchCall = tmuxCalls.args.find(args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane');
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         // Should not have --model flag when no env var is set

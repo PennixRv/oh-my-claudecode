@@ -245,7 +245,8 @@ describe('spawnWorkerForTask – prompt mode and interactive worker launch', () 
     const sendKeysCalls = tmuxCalls.args.filter(
       args => args[0] === 'send-keys' && args.includes('-l')
     );
-    expect(sendKeysCalls.length).toBe(2);
+    // respawn-pane replaces one send-keys for worker launch
+    expect(sendKeysCalls.length).toBe(1);
     const readInstructionCall = sendKeysCalls.find((args) => (args[args.length - 1] ?? '').includes('立即执行'));
     expect(readInstructionCall).toBeDefined();
 
@@ -354,7 +355,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     await spawnWorkerForTask(runtime, 'worker-1', 0);
 
     const launchCall = tmuxCalls.args.find(
-      args => args[0] === 'send-keys' && args.includes('-l')
+      args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane'
     );
     expect(launchCall).toBeDefined();
     const launchCmd = launchCall![launchCall!.length - 1];
@@ -371,7 +372,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     await spawnWorkerForTask(runtime, 'worker-1', 0);
 
     const launchCall = tmuxCalls.args.find(
-      args => args[0] === 'send-keys' && args.includes('-l')
+      args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane'
     );
     expect(launchCall).toBeDefined();
     const launchCmd = launchCall![launchCall!.length - 1];
@@ -388,7 +389,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     await spawnWorkerForTask(runtime, 'worker-1', 0);
 
     const launchCall = tmuxCalls.args.find(
-      args => args[0] === 'send-keys' && args.includes('-l')
+      args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane'
     );
     expect(launchCall).toBeDefined();
     const launchCmd = launchCall![launchCall!.length - 1];
@@ -403,7 +404,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     await spawnWorkerForTask(runtime, 'worker-1', 0);
 
     const launchCall = tmuxCalls.args.find(
-      args => args[0] === 'send-keys' && args.includes('-l')
+      args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane'
     );
     expect(launchCall).toBeDefined();
     const launchCmd = launchCall![launchCall!.length - 1];
@@ -419,7 +420,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     await spawnWorkerForTask(runtime, 'worker-1', 0);
 
     const launchCall = tmuxCalls.args.find(
-      args => args[0] === 'send-keys' && args.includes('-l')
+      args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane'
     );
     expect(launchCall).toBeDefined();
     const launchCmd = launchCall![launchCall!.length - 1];
@@ -436,7 +437,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     await spawnWorkerForTask(runtime, 'worker-1', 0);
 
     const launchCall = tmuxCalls.args.find(
-      args => args[0] === 'send-keys' && args.includes('-l')
+      args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane'
     );
     expect(launchCall).toBeDefined();
     const launchCmd = launchCall![launchCall!.length - 1];
@@ -451,7 +452,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     await spawnWorkerForTask(runtime, 'worker-1', 0);
 
     const launchCall = tmuxCalls.args.find(
-      args => args[0] === 'send-keys' && args.includes('-l')
+      args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane'
     );
     expect(launchCall).toBeDefined();
     const launchCmd = launchCall![launchCall!.length - 1];
@@ -468,7 +469,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     await spawnWorkerForTask(runtime, 'worker-1', 0);
 
     const launchCall = tmuxCalls.args.find(
-      args => args[0] === 'send-keys' && args.includes('-l')
+      args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane'
     );
     expect(launchCall).toBeDefined();
     const launchCmd = launchCall![launchCall!.length - 1];
@@ -485,7 +486,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     await spawnWorkerForTask(runtime, 'worker-1', 0);
 
     const launchCall = tmuxCalls.args.find(
-      args => args[0] === 'send-keys' && args.includes('-l')
+      args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane'
     );
     expect(launchCall).toBeDefined();
     const launchCmd = launchCall![launchCall!.length - 1];
@@ -507,7 +508,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     await spawnWorkerForTask(runtime, 'worker-1', 0);
 
     const launchCall = tmuxCalls.args.find(
-      args => args[0] === 'send-keys' && args.includes('-l')
+      args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane'
     );
     expect(launchCall).toBeDefined();
     const launchCmd = launchCall![launchCall!.length - 1];
@@ -530,7 +531,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     await spawnWorkerForTask(runtime, 'worker-1', 0);
 
     const launchCall = tmuxCalls.args.find(
-      args => args[0] === 'send-keys' && args.includes('-l')
+      args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane'
     );
     expect(launchCall).toBeDefined();
     const launchCmd = launchCall![launchCall!.length - 1];
@@ -546,7 +547,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     await spawnWorkerForTask(runtime, 'worker-1', 0);
 
     const launchCall = tmuxCalls.args.find(
-      args => args[0] === 'send-keys' && args.includes('-l')
+      args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane'
     );
     expect(launchCall).toBeDefined();
     const launchCmd = launchCall![launchCall!.length - 1];
@@ -564,7 +565,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     await spawnWorkerForTask(runtime, 'worker-1', 0);
 
     const launchCall = tmuxCalls.args.find(
-      args => args[0] === 'send-keys' && args.includes('-l')
+      args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane'
     );
     expect(launchCall).toBeDefined();
     const launchCmd = launchCall![launchCall!.length - 1];
@@ -591,7 +592,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     await spawnWorkerForTask(runtime, 'worker-1', 0);
 
     const launchCall = tmuxCalls.args.find(
-      args => args[0] === 'send-keys' && args.includes('-l')
+      args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane'
     );
     expect(launchCall).toBeDefined();
     const launchCmd = launchCall![launchCall!.length - 1];
@@ -628,7 +629,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
     await spawnWorkerForTask(runtime, 'worker-1', 0);
 
     const launchCall = tmuxCalls.args.find(
-      args => args[0] === 'send-keys' && args.includes('-l')
+      args => (args[0] === 'send-keys' && args.includes('-l')) || args[0] === 'respawn-pane'
     );
     expect(launchCall).toBeDefined();
     const launchCmd = launchCall![launchCall!.length - 1];
