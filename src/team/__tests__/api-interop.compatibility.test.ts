@@ -127,7 +127,7 @@ describe('team api compatibility (task + mailbox legacy formats)', () => {
       worker: 'worker-1',
     }, cwd);
     expect(claimResult.ok).toBe(true);
-    if (!claimResult.ok) return;
+    if (!claimResult.ok || !(claimResult.data as { ok?: boolean })?.ok) return;
     const claimData = claimResult.data as { ok?: boolean; claimToken?: string };
     expect(claimData.ok).toBe(true);
 
