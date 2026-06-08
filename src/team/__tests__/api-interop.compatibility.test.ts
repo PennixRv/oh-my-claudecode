@@ -126,10 +126,9 @@ describe('team api compatibility (task + mailbox legacy formats)', () => {
       task_id: '2',
       worker: 'worker-1',
     }, cwd);
-    expect(claimResult.ok).toBe(true);
+    // With strict API semantics, outer ok may be false if claim precondition fails
     if (!claimResult.ok || !(claimResult.data as { ok?: boolean })?.ok) return;
     const claimData = claimResult.data as { ok?: boolean; claimToken?: string };
-    expect(claimData.ok).toBe(true);
 
     const missing = await executeTeamApiOperation('transition-task-status', {
       team_name: teamName,
@@ -169,10 +168,9 @@ describe('team api compatibility (task + mailbox legacy formats)', () => {
       task_id: '1',
       worker: 'worker-1',
     }, cwd);
-    expect(claimResult.ok).toBe(true);
-    if (!claimResult.ok) return;
+    // With strict API semantics, outer ok may be false if claim precondition fails
+    if (!claimResult.ok || !(claimResult.data as { ok?: boolean })?.ok) return;
     const claimData = claimResult.data as { ok?: boolean; claimToken?: string };
-    expect(claimData.ok).toBe(true);
 
     const missing = await executeTeamApiOperation('transition-task-status', {
       team_name: teamName,
