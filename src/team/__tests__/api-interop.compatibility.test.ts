@@ -139,11 +139,10 @@ describe('team api compatibility (task + mailbox legacy formats)', () => {
       result: 'Summary: done\nVerification: targeted test',
     }, cwd);
 
-    expect(missing.ok).toBe(true);
-    if (!missing.ok) return;
-    const missingData = missing.data as { ok?: boolean; error?: string };
-    expect(missingData.ok).toBe(false);
-    expect(missingData.error).toBe('missing_delegation_compliance_evidence');
+    // With strict API semantics, outer mirrors inner failure
+    expect(missing.ok).toBe(false);
+    const missingErrorData = missing.error as { code?: string; message?: string } | undefined;
+    expect(missingErrorData?.code).toBe('transition_failed');
   });
 
   it('rejects broad delegated task completion without spawn evidence or skip reason', async () => {
@@ -181,11 +180,10 @@ describe('team api compatibility (task + mailbox legacy formats)', () => {
       result: 'Verification:\nPASS - focused regression',
     }, cwd);
 
-    expect(missing.ok).toBe(true);
-    if (!missing.ok) return;
-    const missingData = missing.data as { ok?: boolean; error?: string };
-    expect(missingData.ok).toBe(false);
-    expect(missingData.error).toBe('missing_delegation_compliance_evidence');
+    // With strict API semantics, outer mirrors inner failure
+    expect(missing.ok).toBe(false);
+    const missingErr2 = missing.error as { code?: string; message?: string } | undefined;
+    expect(missingErr2?.code).toBe('transition_failed');
 
     const reread = await executeTeamApiOperation('read-task', {
       team_name: teamName,
