@@ -141,8 +141,7 @@ describe('team api compatibility (task + mailbox legacy formats)', () => {
 
     // With strict API semantics, outer mirrors inner failure
     expect(missing.ok).toBe(false);
-    const missingErrorData = missing.error as { code?: string; message?: string } | undefined;
-    expect(missingErrorData?.code).toBe('transition_failed');
+    if (!missing.ok) expect(missing.error.code).toBe('transition_failed');
   });
 
   it('rejects broad delegated task completion without spawn evidence or skip reason', async () => {
@@ -182,8 +181,7 @@ describe('team api compatibility (task + mailbox legacy formats)', () => {
 
     // With strict API semantics, outer mirrors inner failure
     expect(missing.ok).toBe(false);
-    const missingErr2 = missing.error as { code?: string; message?: string } | undefined;
-    expect(missingErr2?.code).toBe('transition_failed');
+    if (!missing.ok) expect(missing.error.code).toBe('transition_failed');
 
     const reread = await executeTeamApiOperation('read-task', {
       team_name: teamName,
