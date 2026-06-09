@@ -2,8 +2,8 @@
 
 # oh-my-claudecode
 
-[![npm version](https://img.shields.io/npm/v/oh-my-claude-sisyphus?color=cb3837)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
-[![npm downloads](https://img.shields.io/npm/dm/oh-my-claude-sisyphus?color=blue)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
+[![npm version](https://img.shields.io/npm/v/oh-my-claude-pennix?color=cb3837)](https://www.npmjs.com/package/oh-my-claude-pennix)
+[![npm downloads](https://img.shields.io/npm/dm/oh-my-claude-pennix?color=blue)](https://www.npmjs.com/package/oh-my-claude-pennix)
 [![GitHub stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-claudecode?style=flat&color=yellow)](https://github.com/Yeachan-Heo/oh-my-claudecode/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Sponsor](https://img.shields.io/badge/Sponsor-❤️-red?style=flat&logo=github)](https://github.com/sponsors/Yeachan-Heo)
@@ -68,7 +68,7 @@ Claude Code native teams'i `~/.claude/settings.json` dosyasında etkinleştirin:
 
 > Teams devre dışıysa, OMC sizi uyaracak ve mümkün olduğunda Team olmadan çalışmaya geçecektir.
 
-> **Not: Paket adlandırması** — Proje **oh-my-claudecode** markasını kullanır (repo, plugin, komutlar), ancak npm paketi [`oh-my-claude-sisyphus`](https://www.npmjs.com/package/oh-my-claude-sisyphus) olarak yayınlanmaktadır. CLI araçlarını npm/bun ile kuruyorsanız, `npm install -g oh-my-claude-sisyphus` kullanın.
+> **Not: Paket adlandırması** — Proje **oh-my-claudecode** markasını kullanır (repo, plugin, komutlar), ancak npm paketi [`oh-my-claude-pennix`](https://www.npmjs.com/package/oh-my-claude-pennix) olarak yayınlanmaktadır. CLI araçlarını npm/bun ile kuruyorsanız, `npm install -g oh-my-claude-pennix` kullanın.
 
 ### Güncelleme
 

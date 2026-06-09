@@ -45,7 +45,7 @@ jobs:
       - name: Publish to npm
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          if npm view oh-my-claude-sisyphus@$VERSION version 2>/dev/null; then
+          if npm view oh-my-claude-pennix@$VERSION version 2>/dev/null; then
             echo "::warning::Version $VERSION already published to npm, skipping publish"
           else
             set -o pipefail
@@ -77,7 +77,7 @@ jobs:
             echo "" >> release-notes.md
             echo "### Install / Update" >> release-notes.md
             echo '```bash' >> release-notes.md
-            echo "npm install -g oh-my-claude-sisyphus@${VERSION}" >> release-notes.md
+            echo "npm install -g oh-my-claude-pennix@${VERSION}" >> release-notes.md
             echo '```' >> release-notes.md
           fi
 

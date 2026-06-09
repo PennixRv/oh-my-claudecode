@@ -107,7 +107,7 @@ describe('daemon bootstrap', () => {
   it('uses a file URL in daemon import script so Windows backslashes are not parsed as JS escapes', () => {
     const unref = vi.fn();
     mockSpawn.mockReturnValue({ pid: 4243, unref } as any);
-    mockResolveDaemonModulePath.mockReturnValue('C:\\Users\\soung\\AppData\\Roaming\\npm\\node_modules\\oh-my-claude-sisyphus\\dist\\features\\rate-limit-wait\\daemon.js');
+    mockResolveDaemonModulePath.mockReturnValue('C:\\Users\\soung\\AppData\\Roaming\\npm\\node_modules\\oh-my-claude-pennix\\dist\\features\\rate-limit-wait\\daemon.js');
 
     const config: DaemonConfig = {
       stateFilePath: join(testDir, 'state.json'),

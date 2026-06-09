@@ -116,7 +116,7 @@ describe('resolveTranscriptPath', () => {
             // Simulate ~/.claude/projects/ with a transcript at the main repo's encoded path
             fakeClaudeDir = join(tempDir, 'fake-claude');
             process.env.CLAUDE_CONFIG_DIR = fakeClaudeDir;
-            const encodedMain = mainRepoDir.replace(/[/\\]/g, '-');
+            const encodedMain = mainRepoDir.replace(/[/\\.]/g, '-');
             const projectDir = join(fakeClaudeDir, 'projects', encodedMain);
             mkdirSync(projectDir, { recursive: true });
             writeFileSync(join(projectDir, 'session-abc.jsonl'), '{}');
@@ -142,22 +142,22 @@ describe('resolveTranscriptPath', () => {
         });
         it('resolves transcript path from native git worktree to main repo (issue #1191)', () => {
             // The worktree-encoded transcript path (does not exist)
-            const encodedWorktree = worktreeDir.replace(/[/\\]/g, '-');
+            const encodedWorktree = worktreeDir.replace(/[/\\.]/g, '-');
             const worktreePath = join(fakeClaudeDir, 'projects', encodedWorktree, 'session-abc.jsonl');
             const resolved = resolveTranscriptPath(worktreePath, worktreeDir);
-            const encodedMain = mainRepoDir.replace(/[/\\]/g, '-');
+            const encodedMain = mainRepoDir.replace(/[/\\.]/g, '-');
             const expectedPath = join(fakeClaudeDir, 'projects', encodedMain, 'session-abc.jsonl');
             expect(resolved).toBe(expectedPath);
         });
         it('does not alter path when CWD is the main repo (not a worktree)', () => {
-            const encodedMain = mainRepoDir.replace(/[/\\]/g, '-');
+            const encodedMain = mainRepoDir.replace(/[/\\.]/g, '-');
             const mainPath = join(fakeClaudeDir, 'projects', encodedMain, 'session-abc.jsonl');
             // Path exists and CWD is the main repo — should return as-is
             const resolved = resolveTranscriptPath(mainPath, mainRepoDir);
             expect(resolved).toBe(mainPath);
         });
         it('returns original path when main repo transcript also missing', () => {
-            const encodedWorktree = worktreeDir.replace(/[/\\]/g, '-');
+            const encodedWorktree = worktreeDir.replace(/[/\\.]/g, '-');
             // Use a session file that doesn't exist at the main repo path either
             const worktreePath = join(fakeClaudeDir, 'projects', encodedWorktree, 'nonexistent.jsonl');
             const resolved = resolveTranscriptPath(worktreePath, worktreeDir);

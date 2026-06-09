@@ -49,6 +49,7 @@ import {
   claimTask as claimTaskImpl,
   transitionTaskStatus as transitionTaskStatusImpl,
   releaseTaskClaim as releaseTaskClaimImpl,
+  renewTaskClaim as renewTaskClaimImpl,
   listTasks as listTasksImpl,
 } from './state/tasks.js';
 import { canonicalizeTeamConfigWorkers } from './worker-canonicalization.js';
@@ -495,6 +496,25 @@ export async function teamReleaseTaskClaim(
     isTerminalTaskStatus: isTerminalTeamTaskStatus,
     taskFilePath: (tn: string, tid: string, c: string) => canonicalTaskFilePath(tn, tid, c),
     writeAtomic,
+  });
+}
+
+export async function teamRenewTaskClaim(
+  teamName: string,
+  taskId: string,
+  workerName: string,
+  cwd: string,
+): Promise<boolean> {
+  return renewTaskClaimImpl(teamName, taskId, workerName, cwd, {
+    teamName,
+    cwd,
+    readTeamConfig: teamReadConfig as (tn: string, c: string) => Promise<{ workers: Array<{ name: string }> } | null>,
+    withTaskClaimLock,
+    normalizeTask,
+    isTerminalTaskStatus: isTerminalTeamTaskStatus,
+    taskFilePath: (tn: string, tid: string, c: string) => canonicalTaskFilePath(tn, tid, c),
+    writeAtomic,
+    readTask: teamReadTask,
   });
 }
 

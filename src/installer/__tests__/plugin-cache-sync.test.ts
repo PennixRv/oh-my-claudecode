@@ -26,7 +26,7 @@ function writePayloadTree(root: string, version = '9.9.9-test'): void {
   writeFile(join(root, '.mcp.json'), '{}\n');
   writeFile(join(root, 'README.md'), '# readme\n');
   writeFile(join(root, 'LICENSE'), 'MIT\n');
-  writeFile(join(root, 'package.json'), JSON.stringify({ name: 'oh-my-claude-sisyphus', version }, null, 2));
+  writeFile(join(root, 'package.json'), JSON.stringify({ name: 'oh-my-claude-pennix', version }, null, 2));
 }
 
 async function freshInstaller() {

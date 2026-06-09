@@ -29,7 +29,7 @@ function writeCompletePluginPayload(root) {
         commands: './commands/',
         skills: ['./skills/plan/'],
     }, null, 2));
-    writePluginFile(join(root, 'package.json'), JSON.stringify({ name: 'oh-my-claude-sisyphus', version: '9.9.9' }, null, 2));
+    writePluginFile(join(root, 'package.json'), JSON.stringify({ name: 'oh-my-claude-pennix', version: '9.9.9' }, null, 2));
 }
 describe('install() standalone hook reconciliation', () => {
     beforeEach(() => {

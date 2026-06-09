@@ -24,6 +24,7 @@ import { TeamPaths, absPath, teamStateRoot } from './state-paths.js';
 import { getOmcRoot } from '../lib/worktree-paths.js';
 import { allocateTasksToWorkers } from './allocation-policy.js';
 import { readTeamConfig, readWorkerStatus, readWorkerHeartbeat, readMonitorSnapshot, writeMonitorSnapshot, writeShutdownRequest, readShutdownAck, writeWorkerInbox, listTasksFromFiles, saveTeamConfig, cleanupTeamState, } from './monitor.js';
+import { teamRenewTaskClaim } from './team-ops.js';
 import { appendTeamEvent, emitMonitorDerivedEvents } from './events.js';
 import { DEFAULT_TEAM_GOVERNANCE, DEFAULT_TEAM_TRANSPORT_POLICY, getConfigGovernance, } from './governance.js';
 import { inferPhase } from './phase-controller.js';
@@ -1469,6 +1470,11 @@ export async function monitorTeamV2(teamName, cwd) {
         const paneSuggestsIdle = alive && paneLooksReady(paneCapture) && !paneHasActiveTask(paneCapture);
         const statusFresh = isFreshTimestamp(status.updated_at);
         const heartbeatFresh = isFreshTimestamp(heartbeat?.last_turn_at);
+        // Renew claim lease for in_progress tasks with a fresh heartbeat so
+        // long-running tasks don't expire during extended work.
+        if (heartbeatFresh && currentTask?.status === 'in_progress') {
+            teamRenewTaskClaim(sanitized, currentTask.id, w.name, cwd).catch(() => { });
+        }
         const hasWorkStartEvidence = expectedTaskId !== '' && hasWorkerStatusProgress(status, expectedTaskId);
         const missingDependencyIds = outstandingTask
             ? getMissingDependencyIds(outstandingTask, taskById)

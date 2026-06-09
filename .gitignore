@@ -34,3 +34,4 @@ bridge/
 
 __pycache__/
 *.py[cod]
+build/config.gypi

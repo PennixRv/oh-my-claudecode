@@ -51,7 +51,7 @@ jobs:
       # Establishes the "old version" baseline before `omc update` is run.
 
       - name: Install omc v4.9.3 via npm
-        run: npm install -g oh-my-claude-sisyphus@4.9.3
+        run: npm install -g oh-my-claude-pennix@4.9.3
 
       - name: Verify omc version is 4.9.3
         run: |
@@ -105,7 +105,7 @@ jobs:
             echo "OMC_UPGRADE_TEST_TARBALL=$RUNNER_TEMP/$TARBALL_NAME"
           } >> "$GITHUB_ENV"
 
-          if npm view "oh-my-claude-sisyphus@$CURRENT_PACKAGE_VERSION" version >/dev/null 2>&1; then
+          if npm view "oh-my-claude-pennix@$CURRENT_PACKAGE_VERSION" version >/dev/null 2>&1; then
             set +e
             GITHUB_LATEST_VERSION="$(node -e '
               const headers = { "User-Agent": "omc-upgrade-test" };

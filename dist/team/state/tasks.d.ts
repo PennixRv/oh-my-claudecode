@@ -53,7 +53,10 @@ export declare const CLAIM_GRACE_MS: number;
  * Renew the claim lease for a task owned by the given worker.
  * Called from the heartbeat path so long-running tasks stay claimed.
  * Does NOT require the claim token — only the worker identity.
+ *
+ * Guarded by withTaskClaimLock to avoid racing with transitionTaskStatus / releaseTaskClaim.
+ * Refuses to renew if the lease has already passed CLAIM_GRACE_MS (grace period expired).
  */
-export declare function renewTaskClaim(teamName: string, taskId: string, workerName: string, cwd: string, deps: TransitionDeps): Promise<boolean>;
+export declare function renewTaskClaim(teamName: string, taskId: string, workerName: string, cwd: string, deps: ClaimTaskDeps): Promise<boolean>;
 export {};
 //# sourceMappingURL=tasks.d.ts.map

@@ -38,5 +38,19 @@ export declare function checkWatchdogFailedMarker(stateRoot: string, startTime: 
 export declare function writeResultArtifact(output: CliOutput, finishedAt: string, jobId?: string | undefined, omcJobsDir?: string | undefined): Promise<void>;
 export declare function buildCliOutput(stateRoot: string, teamName: string, status: 'completed' | 'failed', workerCount: number, startTimeMs: number): CliOutput;
 export declare function buildTerminalCliResult(stateRoot: string, teamName: string, phase: TerminalPhaseResult, workerCount: number, startTimeMs: number): TerminalCliResult;
+/**
+ * A task "final" is terse when it carries no substantive content: empty/
+ * whitespace, or a bare acknowledgement like "Done." / "Ready." / "OK".
+ * Such finals hide the real work that lives in the task's `.output` file,
+ * so they are candidates for substitution. Anything else is treated as a
+ * substantive final and preserved as-is.
+ */
+export declare function isTerseFinalSummary(summary: string): boolean;
+/**
+ * Locate the newest `.output` file recorded for a task under the team's
+ * outputs directory and return its (bounded) content. Returns null when no
+ * non-empty output file exists. Best-effort: never throws.
+ */
+export declare function readTaskOutputFallback(outputsDir: string, teamName: string, taskId: string): string | null;
 export {};
 //# sourceMappingURL=runtime-cli.d.ts.map

@@ -2,8 +2,8 @@
 
 # oh-my-claudecode
 
-[![npm version](https://img.shields.io/npm/v/oh-my-claude-sisyphus?color=cb3837)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
-[![npm downloads](https://img.shields.io/npm/dm/oh-my-claude-sisyphus?color=blue)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
+[![npm version](https://img.shields.io/npm/v/oh-my-claude-pennix?color=cb3837)](https://www.npmjs.com/package/oh-my-claude-pennix)
+[![npm downloads](https://img.shields.io/npm/dm/oh-my-claude-pennix?color=blue)](https://www.npmjs.com/package/oh-my-claude-pennix)
 [![GitHub stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-claudecode?style=flat&color=yellow)](https://github.com/Yeachan-Heo/oh-my-claudecode/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Sponsor](https://img.shields.io/badge/Sponsor-❤️-red?style=flat&logo=github)](https://github.com/sponsors/Yeachan-Heo)
@@ -68,7 +68,7 @@ Team работает как поэтапный pipeline:
 
 > Если teams отключены, OMC предупредит вас и переключится на выполнение без Team, если это возможно.
 
-> **Примечание: Название пакета** — Проект использует бренд **oh-my-claudecode** (репозиторий, плагин, команды), но npm-пакет публикуется как [`oh-my-claude-sisyphus`](https://www.npmjs.com/package/oh-my-claude-sisyphus). Если вы устанавливаете CLI-инструменты через npm/bun, используйте `npm install -g oh-my-claude-sisyphus`.
+> **Примечание: Название пакета** — Проект использует бренд **oh-my-claudecode** (репозиторий, плагин, команды), но npm-пакет публикуется как [`oh-my-claude-pennix`](https://www.npmjs.com/package/oh-my-claude-pennix). Если вы устанавливаете CLI-инструменты через npm/bun, используйте `npm install -g oh-my-claude-pennix`.
 
 ### Обновление
 

@@ -2,8 +2,8 @@
 
 # oh-my-claudecode
 
-[![npm version](https://img.shields.io/npm/v/oh-my-claude-sisyphus?color=cb3837)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
-[![npm downloads](https://img.shields.io/npm/dm/oh-my-claude-sisyphus?color=blue)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
+[![npm version](https://img.shields.io/npm/v/oh-my-claude-pennix?color=cb3837)](https://www.npmjs.com/package/oh-my-claude-pennix)
+[![npm downloads](https://img.shields.io/npm/dm/oh-my-claude-pennix?color=blue)](https://www.npmjs.com/package/oh-my-claude-pennix)
 [![GitHub stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-claudecode?style=flat&color=yellow)](https://github.com/Yeachan-Heo/oh-my-claudecode/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Sponsor](https://img.shields.io/badge/Sponsor-❤️-red?style=flat&logo=github)](https://github.com/sponsors/Yeachan-Heo)
@@ -68,7 +68,7 @@ Abilita i team nativi di Claude Code in `~/.claude/settings.json`:
 
 > Se i team sono disabilitati, OMC ti avviserà e passerà all'esecuzione senza Team quando possibile.
 
-> **Nota: Nome del pacchetto** — Il progetto utilizza il brand **oh-my-claudecode** (repo, plugin, comandi), ma il pacchetto npm è pubblicato come [`oh-my-claude-sisyphus`](https://www.npmjs.com/package/oh-my-claude-sisyphus). Se installi gli strumenti CLI tramite npm/bun, usa `npm install -g oh-my-claude-sisyphus`.
+> **Nota: Nome del pacchetto** — Il progetto utilizza il brand **oh-my-claudecode** (repo, plugin, comandi), ma il pacchetto npm è pubblicato come [`oh-my-claude-pennix`](https://www.npmjs.com/package/oh-my-claude-pennix). Se installi gli strumenti CLI tramite npm/bun, usa `npm install -g oh-my-claude-pennix`.
 
 ### Aggiornamento
 

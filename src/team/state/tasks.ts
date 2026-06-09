@@ -321,24 +321,36 @@ export const CLAIM_GRACE_MS = 5 * 60 * 1000;
  * Renew the claim lease for a task owned by the given worker.
  * Called from the heartbeat path so long-running tasks stay claimed.
  * Does NOT require the claim token — only the worker identity.
+ *
+ * Guarded by withTaskClaimLock to avoid racing with transitionTaskStatus / releaseTaskClaim.
+ * Refuses to renew if the lease has already passed CLAIM_GRACE_MS (grace period expired).
  */
 export async function renewTaskClaim(
-  teamName: string, taskId: string, workerName: string, cwd: string, deps: TransitionDeps,
+  teamName: string, taskId: string, workerName: string, cwd: string, deps: ClaimTaskDeps,
 ): Promise<boolean> {
-  const v = await deps.readTask(teamName, taskId, cwd);
-  if (!v || v.owner !== workerName || !v.claim || v.claim.owner !== workerName) return false;
-  if (v.status !== 'in_progress') return false;
+  const lock = await deps.withTaskClaimLock(teamName, taskId, cwd, async () => {
+    const v = await deps.readTask(teamName, taskId, cwd);
+    if (!v || v.owner !== workerName || !v.claim || v.claim.owner !== workerName) return false;
+    if (v.status !== 'in_progress') return false;
 
-  const now = Date.now();
-  const leasedUntil = new Date(v.claim.leased_until).getTime();
-  // Only renew if lease is past half-life (7.5 min) to avoid excessive writes
-  if (now - leasedUntil < CLAIM_TTL_MS / 2) return true;
+    const now = Date.now();
+    const leasedUntil = new Date(v.claim.leased_until).getTime();
 
-  const updated: TeamTaskV2 = {
-    ...v,
-    claim: { ...v.claim, leased_until: new Date(now + CLAIM_TTL_MS).toISOString() },
-    version: (v.version ?? 0) + 1,
-  };
-  await deps.writeAtomic(deps.taskFilePath(teamName, taskId, cwd), JSON.stringify(updated, null, 2));
-  return true;
+    // Refuse to renew if the lease has already exceeded its grace period
+    if (leasedUntil + CLAIM_GRACE_MS <= now) return false;
+
+    // Only renew if remaining time is ≤ half TTL (7.5 min) to avoid excessive writes
+    if (leasedUntil - now > CLAIM_TTL_MS / 2) return true;
+
+    const updated: TeamTaskV2 = {
+      ...v,
+      claim: { ...v.claim, leased_until: new Date(now + CLAIM_TTL_MS).toISOString() },
+      version: (v.version ?? 0) + 1,
+    };
+    await deps.writeAtomic(deps.taskFilePath(teamName, taskId, cwd), JSON.stringify(updated, null, 2));
+    return true;
+  });
+
+  if (!lock.ok) return false;
+  return lock.value;
 }

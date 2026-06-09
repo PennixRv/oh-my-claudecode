@@ -30,6 +30,7 @@ export declare function teamTransitionTaskStatus(teamName: string, taskId: strin
     error?: string;
 }): Promise<TransitionTaskResult>;
 export declare function teamReleaseTaskClaim(teamName: string, taskId: string, claimToken: string, workerName: string, cwd: string): Promise<ReleaseTaskClaimResult>;
+export declare function teamRenewTaskClaim(teamName: string, taskId: string, workerName: string, cwd: string): Promise<boolean>;
 export declare function teamSendMessage(teamName: string, fromWorker: string, toWorker: string, body: string, cwd: string): Promise<TeamMailboxMessage>;
 export declare function teamBroadcast(teamName: string, fromWorker: string, body: string, cwd: string): Promise<TeamMailboxMessage[]>;
 export declare function teamListMailbox(teamName: string, workerName: string, cwd: string): Promise<TeamMailboxMessage[]>;

@@ -16,7 +16,7 @@ import { TeamPaths, absPath } from './state-paths.js';
 import { normalizeTeamManifest } from './governance.js';
 import { normalizeTeamGovernance } from './governance.js';
 import { isTerminalTeamTaskStatus, canTransitionTeamTaskStatus, } from './contracts.js';
-import { claimTask as claimTaskImpl, transitionTaskStatus as transitionTaskStatusImpl, releaseTaskClaim as releaseTaskClaimImpl, listTasks as listTasksImpl, } from './state/tasks.js';
+import { claimTask as claimTaskImpl, transitionTaskStatus as transitionTaskStatusImpl, releaseTaskClaim as releaseTaskClaimImpl, renewTaskClaim as renewTaskClaimImpl, listTasks as listTasksImpl, } from './state/tasks.js';
 import { canonicalizeTeamConfigWorkers } from './worker-canonicalization.js';
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -361,6 +361,19 @@ export async function teamReleaseTaskClaim(teamName, taskId, claimToken, workerN
         isTerminalTaskStatus: isTerminalTeamTaskStatus,
         taskFilePath: (tn, tid, c) => canonicalTaskFilePath(tn, tid, c),
         writeAtomic,
+    });
+}
+export async function teamRenewTaskClaim(teamName, taskId, workerName, cwd) {
+    return renewTaskClaimImpl(teamName, taskId, workerName, cwd, {
+        teamName,
+        cwd,
+        readTeamConfig: teamReadConfig,
+        withTaskClaimLock,
+        normalizeTask,
+        isTerminalTaskStatus: isTerminalTeamTaskStatus,
+        taskFilePath: (tn, tid, c) => canonicalTaskFilePath(tn, tid, c),
+        writeAtomic,
+        readTask: teamReadTask,
     });
 }
 // ---------------------------------------------------------------------------

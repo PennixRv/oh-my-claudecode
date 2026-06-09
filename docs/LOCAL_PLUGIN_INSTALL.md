@@ -7,7 +7,7 @@ How to install oh-my-claudecode from a local development directory as a Claude C
 Use this document for **local development checkouts and git worktrees** where you want Claude Code to load the plugin from your current repo state.
 
 - **Marketplace/plugin users**: prefer the README quick-start flow
-- **npm users**: prefer `npm i -g oh-my-claude-sisyphus@latest`; npm installs expose both `oh-my-claudecode` and `omc` command aliases
+- **npm users**: prefer `npm i -g oh-my-claude-pennix@latest`; npm installs expose both `oh-my-claudecode` and `omc` command aliases
 - **Local-dev/worktree users**: use this guide so the installed plugin matches the branch/worktree you are editing
 
 ## Quick Install

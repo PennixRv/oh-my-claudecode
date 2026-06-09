@@ -53,7 +53,7 @@ function writeCompletePluginPayload(root) {
         commands: './commands/',
         skills: ['./skills/plan/'],
     }, null, 2));
-    writePluginFile(join(root, 'package.json'), JSON.stringify({ name: 'oh-my-claude-sisyphus', version: '9.9.9' }, null, 2));
+    writePluginFile(join(root, 'package.json'), JSON.stringify({ name: 'oh-my-claude-pennix', version: '9.9.9' }, null, 2));
 }
 describe('installer legacy agent sync gating (issue #1502)', () => {
     let tempRoot;
