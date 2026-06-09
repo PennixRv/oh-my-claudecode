@@ -12,7 +12,7 @@
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, readdirSync, writeFileSync, unlinkSync } from 'fs';
-import { homedir } from 'os';
+import { homedir, tmpdir } from 'os';
 import { resolve, normalize, relative, sep, join, isAbsolute, basename, dirname } from 'path';
 import { getClaudeConfigDir } from '../utils/config-dir.js';
 
@@ -676,10 +676,11 @@ export function isValidTranscriptPath(transcriptPath: string): boolean {
   const normalized = normalize(expandedPath);
   const home = homedir();
 
-  // Allowed: [$CLAUDE_CONFIG_DIR|~/.claude], ~/.omc/..., /tmp/...
+  // Allowed: [$CLAUDE_CONFIG_DIR|~/.claude], ~/.omc/..., system temp dir
   const allowedPrefixes = [
     getClaudeConfigDir(),
     join(home, '.omc'),
+    tmpdir(), // honors $TMPDIR; covers /tmp and macOS /var/folders defaults
     '/tmp',
     '/var/folders', // macOS temp
   ];
