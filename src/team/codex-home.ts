@@ -198,6 +198,7 @@ function seedWorkerConfig(durableBase: string): void {
   let sandbox = 'danger-full-access';
   let approval = 'never';
   let personality = 'pragmatic';
+  let providersBlock = '';
   let featuresBlock = '';
 
   if (existsSync(MAIN_CONFIG)) {
@@ -210,16 +211,36 @@ function seedWorkerConfig(durableBase: string): void {
       if (approvalM) approval = approvalM[1];
       if (personalityM) personality = personalityM[1];
 
-      // Carry over [features] block verbatim
-      const featIdx = main.indexOf('[features]');
-      if (featIdx >= 0) {
-        const afterFeat = main.slice(featIdx);
-        const nextSection = afterFeat.indexOf('\n[');
-        featuresBlock = nextSection >= 0
-          ? afterFeat.slice(0, nextSection).trimEnd()
-          : afterFeat.trimEnd();
+      // Carry over [model_providers] and [features] blocks verbatim.
+      // [model_providers] is essential: it tells Codex to route through CCH, not api.openai.com.
+      for (const section of ['[model_providers]', '[features]']) {
+        const idx = main.indexOf(section);
+        if (idx >= 0) {
+          const after = main.slice(idx);
+          const nextSection = after.indexOf('\n[');
+          const block = nextSection >= 0
+            ? after.slice(0, nextSection).trimEnd()
+            : after.trimEnd();
+          if (section === '[model_providers]') {
+            providersBlock = block;
+          } else {
+            featuresBlock = block;
+          }
+        }
       }
     } catch { /* keep defaults */ }
+  }
+
+  // If we couldn't extract [model_providers], write a hard error — worker won't work without it.
+  if (!providersBlock) {
+    if (existsSync(MAIN_CONFIG)) {
+      // [model_providers] exists in main but we failed to parse — copy the whole config as fallback
+      const main = readFileSync(MAIN_CONFIG, 'utf-8');
+      writeFileSync(dest, '# Worker CODEX_HOME — full copy (model_providers parse failed)\n' + main);
+      return;
+    }
+    // No main config at all — write a minimal placeholder
+    providersBlock = '# [model_providers] missing — worker may fail to route API calls';
   }
 
   const config = [
@@ -231,6 +252,8 @@ function seedWorkerConfig(durableBase: string): void {
     `approval_policy = "${approval}"`,
     `personality = "${personality}"`,
     'check_for_update_on_startup = false',
+    '',
+    providersBlock,
     '',
   ].join('\n');
 

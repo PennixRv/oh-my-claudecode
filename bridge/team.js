@@ -5597,6 +5597,7 @@ function seedWorkerConfig(durableBase) {
   let sandbox = "danger-full-access";
   let approval = "never";
   let personality = "pragmatic";
+  let providersBlock = "";
   let featuresBlock = "";
   if (existsSync10(MAIN_CONFIG)) {
     try {
@@ -5607,14 +5608,29 @@ function seedWorkerConfig(durableBase) {
       if (sandboxM) sandbox = sandboxM[1];
       if (approvalM) approval = approvalM[1];
       if (personalityM) personality = personalityM[1];
-      const featIdx = main2.indexOf("[features]");
-      if (featIdx >= 0) {
-        const afterFeat = main2.slice(featIdx);
-        const nextSection = afterFeat.indexOf("\n[");
-        featuresBlock = nextSection >= 0 ? afterFeat.slice(0, nextSection).trimEnd() : afterFeat.trimEnd();
+      for (const section of ["[model_providers]", "[features]"]) {
+        const idx = main2.indexOf(section);
+        if (idx >= 0) {
+          const after = main2.slice(idx);
+          const nextSection = after.indexOf("\n[");
+          const block = nextSection >= 0 ? after.slice(0, nextSection).trimEnd() : after.trimEnd();
+          if (section === "[model_providers]") {
+            providersBlock = block;
+          } else {
+            featuresBlock = block;
+          }
+        }
       }
     } catch {
     }
+  }
+  if (!providersBlock) {
+    if (existsSync10(MAIN_CONFIG)) {
+      const main2 = readFileSync6(MAIN_CONFIG, "utf-8");
+      writeFileSync3(dest, "# Worker CODEX_HOME \u2014 full copy (model_providers parse failed)\n" + main2);
+      return;
+    }
+    providersBlock = "# [model_providers] missing \u2014 worker may fail to route API calls";
   }
   const config = [
     "# Worker CODEX_HOME config \u2014 seeded by OMC team runtime.",
@@ -5625,6 +5641,8 @@ function seedWorkerConfig(durableBase) {
     `approval_policy = "${approval}"`,
     `personality = "${personality}"`,
     "check_for_update_on_startup = false",
+    "",
+    providersBlock,
     ""
   ].join("\n");
   writeFileSync3(dest, config + (featuresBlock ? `
