@@ -5559,8 +5559,8 @@ function getOmcRoot(worktreeRoot) {
   const customDir = process.env.OMC_STATE_DIR;
   if (customDir) {
     const root3 = worktreeRoot || getWorktreeRoot() || process.cwd();
-    const projectId2 = getProjectIdentifier(root3);
-    const centralizedPath = (0, import_path17.join)(customDir, projectId2);
+    const projectId = getProjectIdentifier(root3);
+    const centralizedPath = (0, import_path17.join)(customDir, projectId);
     const legacyPath = (0, import_path17.join)(root3, OmcPaths.ROOT);
     const warningKey = `${legacyPath}:${centralizedPath}`;
     if (!dualDirWarnings.has(warningKey) && (0, import_fs12.existsSync)(legacyPath) && (0, import_fs12.existsSync)(centralizedPath)) {
@@ -29551,16 +29551,15 @@ var init_monitor = __esm({
 });
 
 // src/team/codex-home.ts
-function projectId(omcRoot) {
-  return (0, import_node_crypto2.createHash)("sha256").update((0, import_node_path7.resolve)(omcRoot)).digest("hex").slice(0, 12);
-}
 function resolveCodexHomeLayout(cwd2, teamName, workerName2, launchId) {
   const omcRoot = getOmcRoot(cwd2);
-  const pid = projectId(omcRoot);
-  const durableBase = (0, import_node_path7.join)(omcRoot, "codex-home", pid, "base");
+  const pid = stableProjectId(omcRoot);
   const ts = launchId ?? String(Date.now());
   const runtimeMirror = (0, import_node_path7.join)(omcRoot, "codex-home", pid, "runtime", sanitize(teamName), sanitize(workerName2), ts);
-  return { durableBase, runtimeMirror };
+  return { durableBase: DURABLE_BASE, runtimeMirror };
+}
+function stableProjectId(omcRoot) {
+  return (0, import_node_crypto2.createHash)("sha256").update((0, import_node_path7.resolve)(omcRoot)).digest("hex").slice(0, 12);
 }
 function ensureDurableBase(durableBase) {
   if ((0, import_node_fs6.existsSync)((0, import_node_path7.join)(durableBase, META_FILE))) return;
@@ -29608,7 +29607,7 @@ async function buildCodexWorkerEnv(cwd2, teamName, workerName2, agentType, launc
 }
 async function cleanupTeamCodexMirrors(cwd2, teamName) {
   const omcRoot = getOmcRoot(cwd2);
-  const pid = projectId(omcRoot);
+  const pid = stableProjectId(omcRoot);
   const teamRuntimeDir = (0, import_node_path7.join)(omcRoot, "codex-home", pid, "runtime", sanitize(teamName));
   if ((0, import_node_fs6.existsSync)(teamRuntimeDir)) {
     await (0, import_promises9.rm)(teamRuntimeDir, { recursive: true, force: true, maxRetries: 3 });
@@ -29633,17 +29632,20 @@ function seedWorkerConfig(durableBase) {
       if (sandboxM) sandbox = sandboxM[1];
       if (approvalM) approval = approvalM[1];
       if (personalityM) personality = personalityM[1];
-      for (const section of ["[model_providers]", "[features]"]) {
+      const allSections = ["[features]"];
+      for (const m of main3.matchAll(/^\[model_providers[^\]]*\]/gm)) {
+        allSections.push(m[0]);
+      }
+      for (const section of allSections) {
         const idx = main3.indexOf(section);
-        if (idx >= 0) {
-          const after = main3.slice(idx);
-          const nextSection = after.indexOf("\n[");
-          const block = nextSection >= 0 ? after.slice(0, nextSection).trimEnd() : after.trimEnd();
-          if (section === "[model_providers]") {
-            providersBlock = block;
-          } else {
-            featuresBlock = block;
-          }
+        if (idx < 0) continue;
+        const after = main3.slice(idx);
+        const nextSection = after.slice(section.length).indexOf("\n[");
+        const block = nextSection >= 0 ? after.slice(0, section.length + nextSection).trimEnd() : after.trimEnd();
+        if (section.startsWith("[model_providers")) {
+          providersBlock += (providersBlock ? "\n\n" : "") + block;
+        } else {
+          featuresBlock = block;
         }
       }
     } catch {
@@ -29695,7 +29697,7 @@ function ensureGitExclude(durableBase) {
     dir = parent;
   }
 }
-var import_node_fs6, import_promises9, import_node_crypto2, import_node_path7, import_node_os2, MAIN_CODEX_HOME, MAIN_CONFIG, MAIN_AUTH, META_FILE;
+var import_node_fs6, import_promises9, import_node_crypto2, import_node_path7, import_node_os2, DURABLE_BASE, MAIN_CODEX_HOME, MAIN_CONFIG, MAIN_AUTH, META_FILE;
 var init_codex_home = __esm({
   "src/team/codex-home.ts"() {
     "use strict";
@@ -29705,6 +29707,7 @@ var init_codex_home = __esm({
     import_node_path7 = require("node:path");
     import_node_os2 = require("node:os");
     init_worktree_paths();
+    DURABLE_BASE = (0, import_node_path7.join)((0, import_node_os2.homedir)(), ".codex-omc-worker");
     MAIN_CODEX_HOME = (0, import_node_path7.join)((0, import_node_os2.homedir)(), ".codex");
     MAIN_CONFIG = (0, import_node_path7.join)(MAIN_CODEX_HOME, "config.toml");
     MAIN_AUTH = (0, import_node_path7.join)(MAIN_CODEX_HOME, "auth.json");

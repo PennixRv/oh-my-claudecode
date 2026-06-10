@@ -302,8 +302,8 @@ function getOmcRoot(worktreeRoot) {
   const customDir = process.env.OMC_STATE_DIR;
   if (customDir) {
     const root2 = worktreeRoot || getWorktreeRoot() || process.cwd();
-    const projectId2 = getProjectIdentifier(root2);
-    const centralizedPath = (0, import_path8.join)(customDir, projectId2);
+    const projectId = getProjectIdentifier(root2);
+    const centralizedPath = (0, import_path8.join)(customDir, projectId);
     const legacyPath = (0, import_path8.join)(root2, OmcPaths.ROOT);
     const warningKey = `${legacyPath}:${centralizedPath}`;
     if (!dualDirWarnings.has(warningKey) && (0, import_fs5.existsSync)(legacyPath) && (0, import_fs5.existsSync)(centralizedPath)) {
@@ -3686,16 +3686,16 @@ var import_node_crypto = require("node:crypto");
 var import_node_path = require("node:path");
 var import_node_os = require("node:os");
 init_worktree_paths();
-function projectId(omcRoot) {
-  return (0, import_node_crypto.createHash)("sha256").update((0, import_node_path.resolve)(omcRoot)).digest("hex").slice(0, 12);
-}
+var DURABLE_BASE = (0, import_node_path.join)((0, import_node_os.homedir)(), ".codex-omc-worker");
 function resolveCodexHomeLayout(cwd, teamName, workerName2, launchId) {
   const omcRoot = getOmcRoot(cwd);
-  const pid = projectId(omcRoot);
-  const durableBase = (0, import_node_path.join)(omcRoot, "codex-home", pid, "base");
+  const pid = stableProjectId(omcRoot);
   const ts = launchId ?? String(Date.now());
   const runtimeMirror = (0, import_node_path.join)(omcRoot, "codex-home", pid, "runtime", sanitize(teamName), sanitize(workerName2), ts);
-  return { durableBase, runtimeMirror };
+  return { durableBase: DURABLE_BASE, runtimeMirror };
+}
+function stableProjectId(omcRoot) {
+  return (0, import_node_crypto.createHash)("sha256").update((0, import_node_path.resolve)(omcRoot)).digest("hex").slice(0, 12);
 }
 var MAIN_CODEX_HOME = (0, import_node_path.join)((0, import_node_os.homedir)(), ".codex");
 var MAIN_CONFIG = (0, import_node_path.join)(MAIN_CODEX_HOME, "config.toml");
@@ -3747,7 +3747,7 @@ async function buildCodexWorkerEnv(cwd, teamName, workerName2, agentType, launch
 }
 async function cleanupTeamCodexMirrors(cwd, teamName) {
   const omcRoot = getOmcRoot(cwd);
-  const pid = projectId(omcRoot);
+  const pid = stableProjectId(omcRoot);
   const teamRuntimeDir = (0, import_node_path.join)(omcRoot, "codex-home", pid, "runtime", sanitize(teamName));
   if ((0, import_node_fs.existsSync)(teamRuntimeDir)) {
     await (0, import_promises.rm)(teamRuntimeDir, { recursive: true, force: true, maxRetries: 3 });
@@ -3772,17 +3772,20 @@ function seedWorkerConfig(durableBase) {
       if (sandboxM) sandbox = sandboxM[1];
       if (approvalM) approval = approvalM[1];
       if (personalityM) personality = personalityM[1];
-      for (const section of ["[model_providers]", "[features]"]) {
+      const allSections = ["[features]"];
+      for (const m of main2.matchAll(/^\[model_providers[^\]]*\]/gm)) {
+        allSections.push(m[0]);
+      }
+      for (const section of allSections) {
         const idx = main2.indexOf(section);
-        if (idx >= 0) {
-          const after = main2.slice(idx);
-          const nextSection = after.indexOf("\n[");
-          const block = nextSection >= 0 ? after.slice(0, nextSection).trimEnd() : after.trimEnd();
-          if (section === "[model_providers]") {
-            providersBlock = block;
-          } else {
-            featuresBlock = block;
-          }
+        if (idx < 0) continue;
+        const after = main2.slice(idx);
+        const nextSection = after.slice(section.length).indexOf("\n[");
+        const block = nextSection >= 0 ? after.slice(0, section.length + nextSection).trimEnd() : after.trimEnd();
+        if (section.startsWith("[model_providers")) {
+          providersBlock += (providersBlock ? "\n\n" : "") + block;
+        } else {
+          featuresBlock = block;
         }
       }
     } catch {

@@ -155,8 +155,8 @@ function getOmcRoot(worktreeRoot) {
   const customDir = process.env.OMC_STATE_DIR;
   if (customDir) {
     const root2 = worktreeRoot || getWorktreeRoot() || process.cwd();
-    const projectId2 = getProjectIdentifier(root2);
-    const centralizedPath = join2(customDir, projectId2);
+    const projectId = getProjectIdentifier(root2);
+    const centralizedPath = join2(customDir, projectId);
     const legacyPath = join2(root2, OmcPaths.ROOT);
     const warningKey = `${legacyPath}:${centralizedPath}`;
     if (!dualDirWarnings.has(warningKey) && existsSync(legacyPath) && existsSync(centralizedPath)) {
@@ -5526,16 +5526,15 @@ import { rm as rm3 } from "node:fs/promises";
 import { createHash as createHash3 } from "node:crypto";
 import { join as join15, resolve as resolve4 } from "node:path";
 import { homedir as homedir4 } from "node:os";
-function projectId(omcRoot) {
-  return createHash3("sha256").update(resolve4(omcRoot)).digest("hex").slice(0, 12);
-}
 function resolveCodexHomeLayout(cwd, teamName, workerName, launchId) {
   const omcRoot = getOmcRoot(cwd);
-  const pid = projectId(omcRoot);
-  const durableBase = join15(omcRoot, "codex-home", pid, "base");
+  const pid = stableProjectId(omcRoot);
   const ts = launchId ?? String(Date.now());
   const runtimeMirror = join15(omcRoot, "codex-home", pid, "runtime", sanitize(teamName), sanitize(workerName), ts);
-  return { durableBase, runtimeMirror };
+  return { durableBase: DURABLE_BASE, runtimeMirror };
+}
+function stableProjectId(omcRoot) {
+  return createHash3("sha256").update(resolve4(omcRoot)).digest("hex").slice(0, 12);
 }
 function ensureDurableBase(durableBase) {
   if (existsSync10(join15(durableBase, META_FILE))) return;
@@ -5583,7 +5582,7 @@ async function buildCodexWorkerEnv(cwd, teamName, workerName, agentType, launchI
 }
 async function cleanupTeamCodexMirrors(cwd, teamName) {
   const omcRoot = getOmcRoot(cwd);
-  const pid = projectId(omcRoot);
+  const pid = stableProjectId(omcRoot);
   const teamRuntimeDir = join15(omcRoot, "codex-home", pid, "runtime", sanitize(teamName));
   if (existsSync10(teamRuntimeDir)) {
     await rm3(teamRuntimeDir, { recursive: true, force: true, maxRetries: 3 });
@@ -5608,17 +5607,20 @@ function seedWorkerConfig(durableBase) {
       if (sandboxM) sandbox = sandboxM[1];
       if (approvalM) approval = approvalM[1];
       if (personalityM) personality = personalityM[1];
-      for (const section of ["[model_providers]", "[features]"]) {
+      const allSections = ["[features]"];
+      for (const m of main2.matchAll(/^\[model_providers[^\]]*\]/gm)) {
+        allSections.push(m[0]);
+      }
+      for (const section of allSections) {
         const idx = main2.indexOf(section);
-        if (idx >= 0) {
-          const after = main2.slice(idx);
-          const nextSection = after.indexOf("\n[");
-          const block = nextSection >= 0 ? after.slice(0, nextSection).trimEnd() : after.trimEnd();
-          if (section === "[model_providers]") {
-            providersBlock = block;
-          } else {
-            featuresBlock = block;
-          }
+        if (idx < 0) continue;
+        const after = main2.slice(idx);
+        const nextSection = after.slice(section.length).indexOf("\n[");
+        const block = nextSection >= 0 ? after.slice(0, section.length + nextSection).trimEnd() : after.trimEnd();
+        if (section.startsWith("[model_providers")) {
+          providersBlock += (providersBlock ? "\n\n" : "") + block;
+        } else {
+          featuresBlock = block;
         }
       }
     } catch {
@@ -5670,11 +5672,12 @@ function ensureGitExclude(durableBase) {
     dir = parent;
   }
 }
-var MAIN_CODEX_HOME, MAIN_CONFIG, MAIN_AUTH, META_FILE;
+var DURABLE_BASE, MAIN_CODEX_HOME, MAIN_CONFIG, MAIN_AUTH, META_FILE;
 var init_codex_home = __esm({
   "src/team/codex-home.ts"() {
     "use strict";
     init_worktree_paths();
+    DURABLE_BASE = join15(homedir4(), ".codex-omc-worker");
     MAIN_CODEX_HOME = join15(homedir4(), ".codex");
     MAIN_CONFIG = join15(MAIN_CODEX_HOME, "config.toml");
     MAIN_AUTH = join15(MAIN_CODEX_HOME, "auth.json");

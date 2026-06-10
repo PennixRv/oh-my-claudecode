@@ -25,10 +25,8 @@ import { getOmcRoot } from '../lib/worktree-paths.js';
 // Path resolution
 // ---------------------------------------------------------------------------
 
-/** Derive a stable project-id from the OMC root path. */
-function projectId(omcRoot: string): string {
-  return createHash('sha256').update(resolve(omcRoot)).digest('hex').slice(0, 12);
-}
+/** User-level durable base — shared across all projects, seeded once. */
+const DURABLE_BASE = join(homedir(), '.codex-omc-worker');
 
 export interface CodexHomeLayout {
   durableBase: string;
@@ -42,11 +40,15 @@ export function resolveCodexHomeLayout(
   launchId?: string,
 ): CodexHomeLayout {
   const omcRoot = getOmcRoot(cwd);
-  const pid = projectId(omcRoot);
-  const durableBase = join(omcRoot, 'codex-home', pid, 'base');
+  const pid = stableProjectId(omcRoot);
   const ts = launchId ?? String(Date.now());
   const runtimeMirror = join(omcRoot, 'codex-home', pid, 'runtime', sanitize(teamName), sanitize(workerName), ts);
-  return { durableBase, runtimeMirror };
+  return { durableBase: DURABLE_BASE, runtimeMirror };
+}
+
+/** Derive a stable project-id from the OMC root path (used for runtime mirror namespace only). */
+function stableProjectId(omcRoot: string): string {
+  return createHash('sha256').update(resolve(omcRoot)).digest('hex').slice(0, 12);
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +177,7 @@ export async function cleanupTeamCodexMirrors(
   teamName: string,
 ): Promise<void> {
   const omcRoot = getOmcRoot(cwd);
-  const pid = projectId(omcRoot);
+  const pid = stableProjectId(omcRoot);
   const teamRuntimeDir = join(omcRoot, 'codex-home', pid, 'runtime', sanitize(teamName));
   if (existsSync(teamRuntimeDir)) {
     await rm(teamRuntimeDir, { recursive: true, force: true, maxRetries: 3 });
@@ -211,21 +213,25 @@ function seedWorkerConfig(durableBase: string): void {
       if (approvalM) approval = approvalM[1];
       if (personalityM) personality = personalityM[1];
 
-      // Carry over [model_providers] and [features] blocks verbatim.
-      // [model_providers] is essential: it tells Codex to route through CCH, not api.openai.com.
-      for (const section of ['[model_providers]', '[features]']) {
+      // Carry over [model_providers*] and [features] blocks verbatim.
+      // [model_providers.cch] etc. tell Codex to route through CCH, not api.openai.com.
+      const allSections = ['[features]'];
+      // Collect all [model_providers*] sections (e.g. [model_providers.cch])
+      for (const m of main.matchAll(/^\[model_providers[^\]]*\]/gm)) {
+        allSections.push(m[0]);
+      }
+      for (const section of allSections) {
         const idx = main.indexOf(section);
-        if (idx >= 0) {
-          const after = main.slice(idx);
-          const nextSection = after.indexOf('\n[');
-          const block = nextSection >= 0
-            ? after.slice(0, nextSection).trimEnd()
-            : after.trimEnd();
-          if (section === '[model_providers]') {
-            providersBlock = block;
-          } else {
-            featuresBlock = block;
-          }
+        if (idx < 0) continue;
+        const after = main.slice(idx);
+        const nextSection = after.slice(section.length).indexOf('\n[');
+        const block = nextSection >= 0
+          ? after.slice(0, section.length + nextSection).trimEnd()
+          : after.trimEnd();
+        if (section.startsWith('[model_providers')) {
+          providersBlock += (providersBlock ? '\n\n' : '') + block;
+        } else {
+          featuresBlock = block;
         }
       }
     } catch { /* keep defaults */ }
