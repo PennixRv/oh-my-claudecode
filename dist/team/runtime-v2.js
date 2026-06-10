@@ -1475,9 +1475,12 @@ export async function monitorTeamV2(teamName, cwd) {
         const paneSuggestsIdle = alive && paneLooksReady(paneCapture) && !paneHasActiveTask(paneCapture);
         const statusFresh = isFreshTimestamp(status.updated_at);
         const heartbeatFresh = isFreshTimestamp(heartbeat?.last_turn_at);
-        // Renew claim lease for in_progress tasks with a fresh heartbeat so
-        // long-running tasks don't expire during extended work.
-        if (heartbeatFresh && currentTask?.status === 'in_progress') {
+        // Renew claim lease for in_progress tasks so long-running tasks
+        // don't expire. For Claude workers this relies on heartbeatFresh;
+        // for Codex workers (no heartbeat.json), use pane liveness + work
+        // evidence (pane alive, not idle, status fresh) as a fallback.
+        const paneActive = alive && !paneLooksReady(paneCapture) && statusFresh;
+        if (currentTask?.status === 'in_progress' && (heartbeatFresh || paneActive)) {
             teamRenewTaskClaim(sanitized, currentTask.id, w.name, cwd).catch(() => { });
         }
         const hasWorkStartEvidence = expectedTaskId !== '' && hasWorkerStatusProgress(status, expectedTaskId);

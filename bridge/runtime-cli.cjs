@@ -9683,7 +9683,8 @@ async function monitorTeamV2(teamName, cwd) {
     const paneSuggestsIdle = alive && paneLooksReady(paneCapture) && !paneHasActiveTask(paneCapture);
     const statusFresh = isFreshTimestamp(status.updated_at);
     const heartbeatFresh = isFreshTimestamp(heartbeat?.last_turn_at);
-    if (heartbeatFresh && currentTask?.status === "in_progress") {
+    const paneActive = alive && !paneLooksReady(paneCapture) && statusFresh;
+    if (currentTask?.status === "in_progress" && (heartbeatFresh || paneActive)) {
       teamRenewTaskClaim(sanitized, currentTask.id, w.name, cwd).catch(() => {
       });
     }
