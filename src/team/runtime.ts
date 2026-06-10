@@ -4,6 +4,7 @@ import { existsSync } from 'fs';
 import { tmuxExecAsync } from '../cli/tmux-utils.js';
 import type { CliAgentType } from './model-contract.js';
 import { buildWorkerArgv, resolveValidatedBinaryPath, getWorkerEnv as getModelWorkerEnv, isPromptModeAgent, getPromptModeArgs, resolveClaudeWorkerModel } from './model-contract.js';
+import { buildCodexWorkerEnv, cleanupTeamCodexMirrors } from './codex-home.js';
 import { validateTeamName } from './team-name.js';
 import {
   createTeamSession, spawnWorkerInPane, sendToWorker,
@@ -714,7 +715,13 @@ export async function spawnWorkerForTask(
   const instruction = buildInitialTaskInstruction(runtime.teamName, workerNameValue, task, taskId);
   await composeInitialInbox(runtime.teamName, workerNameValue, instruction, runtime.cwd);
 
-  const envVars = getModelWorkerEnv(runtime.teamName, workerNameValue, agentType);
+  const codexHomeResult = await buildCodexWorkerEnv(
+    runtime.cwd, runtime.teamName, workerNameValue, agentType,
+  );
+  const envVars = {
+    ...getModelWorkerEnv(runtime.teamName, workerNameValue, agentType),
+    ...codexHomeResult.env,
+  };
   const resolvedBinaryPath = runtime.resolvedBinaryPaths?.[agentType] ?? resolveValidatedBinaryPath(agentType);
   if (!runtime.resolvedBinaryPaths) {
     runtime.resolvedBinaryPaths = {};
@@ -969,6 +976,11 @@ export async function shutdownTeam(
     cleanupTeamWorktrees(teamName, cwd);
   } catch {
     // best-effort: worktree cleanup is dormant in current runtime paths
+  }
+  try {
+    await cleanupTeamCodexMirrors(cwd, teamName);
+  } catch {
+    // best-effort
   }
   try {
     await rm(root, { recursive: true, force: true });

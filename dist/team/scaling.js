@@ -13,6 +13,7 @@ import { resolve } from 'path';
 import { mkdir, readFile } from 'fs/promises';
 import { tmuxExec, tmuxSpawn } from '../cli/tmux-utils.js';
 import { buildWorkerArgv, getWorkerEnv as getModelWorkerEnv, resolveClaudeWorkerModel, } from './model-contract.js';
+import { buildCodexWorkerEnv, cleanupTeamCodexMirrors } from './codex-home.js';
 import { CANONICAL_TEAM_ROLES } from '../shared/types.js';
 import { normalizeDelegationRole } from '../features/delegation-routing/types.js';
 import { routeTaskToRole } from './role-router.js';
@@ -134,6 +135,10 @@ export async function scaleUp(teamName, count, agentType, tasks, cwd, env = proc
                 }
                 catch { /* best-effort pane/worktree cleanup */ }
             }
+            try {
+                await cleanupTeamCodexMirrors(leaderCwd, sanitized);
+            }
+            catch { /* best-effort */ }
             for (const pending of pendingWorktrees) {
                 if (cleanedWorktrees.has(pending.workerName))
                     continue;
@@ -287,8 +292,10 @@ export async function scaleUp(teamName, count, agentType, tasks, cwd, env = proc
                 }
             }
             // Rebuild env using the final agentType (fallback may have swapped it).
+            const codexHomeResult = await buildCodexWorkerEnv(leaderCwd, sanitized, workerName, workerAgentType);
             const extraEnv = {
                 ...getModelWorkerEnv(sanitized, workerName, workerAgentType, env),
+                ...codexHomeResult.env,
                 OMC_TEAM_STATE_ROOT: teamStateRoot,
                 OMC_TEAM_LEADER_CWD: leaderCwd,
                 ...(worktree ? { OMC_TEAM_WORKTREE_PATH: worktree.path, OMC_TEAM_WORKER_CWD: workerCwd } : {}),

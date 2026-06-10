@@ -39,6 +39,7 @@ import {
   cleanupTeamState,
 } from './monitor.js';
 import { teamRenewTaskClaim } from './team-ops.js';
+import { buildCodexWorkerEnv, cleanupTeamCodexMirrors } from './codex-home.js';
 import { appendTeamEvent, emitMonitorDerivedEvents } from './events.js';
 import {
   DEFAULT_TEAM_GOVERNANCE,
@@ -743,12 +744,18 @@ async function spawnV2Worker(opts: SpawnV2WorkerOptions): Promise<SpawnV2WorkerR
   }
 
   // Build env and launch command
+  // Codex worker CODEX_HOME isolation (durable base + runtime mirror)
+  const codexHomeResult = await buildCodexWorkerEnv(
+    opts.cwd, opts.teamName, opts.workerName, opts.agentType,
+  );
+
   const envVars = {
     ...getModelWorkerEnv(opts.teamName, opts.workerName, opts.agentType),
     OMC_TEAM_STATE_ROOT: teamStateRoot(opts.cwd, opts.teamName),
     OMC_TEAM_LEADER_CWD: opts.cwd,
     ...(opts.worktreePath ? { OMC_TEAM_WORKTREE_PATH: opts.worktreePath } : {}),
     ...(opts.workerCwd ? { OMC_TEAM_WORKER_CWD: opts.workerCwd } : {}),
+    ...codexHomeResult.env,
   };
   const resolvedBinaryPath = opts.resolvedBinaryPaths[opts.agentType]
     ?? resolveValidatedBinaryPath(opts.agentType);
@@ -936,6 +943,7 @@ async function rollbackUnpersistedNativeWorktreeStartup(teamName: string, cwd: s
   const errorMessage = cause instanceof Error ? cause.message : String(cause);
   try {
     const cleanup = cleanupTeamWorktrees(teamName, cwd);
+    await cleanupTeamCodexMirrors(cwd, teamName);
     if (cleanup.preserved.length === 0) {
       await rm(teamRoot, { recursive: true, force: true });
       return;
@@ -2105,6 +2113,7 @@ export async function shutdownTeamV2(
       process.stderr.write('[team/runtime-v2] preserving team state because config is missing and worktree cleanup evidence remains\n');
       return;
     }
+    await cleanupTeamCodexMirrors(cwd, sanitized);
     await cleanupTeamState(sanitized, cwd);
     return;
   }
@@ -2305,6 +2314,7 @@ export async function shutdownTeamV2(
     process.stderr.write(`[team/runtime-v2] worktree cleanup: ${err}\n`);
   }
   if (preservedWorktrees === 0) {
+    await cleanupTeamCodexMirrors(cwd, sanitized);
     await cleanupTeamState(sanitized, cwd);
   } else {
     process.stderr.write(`[team/runtime-v2] preserved ${preservedWorktrees} worktree(s); keeping team state for follow-up cleanup\n`);

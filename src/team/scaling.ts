@@ -19,6 +19,7 @@ import {
   resolveClaudeWorkerModel,
   type CliAgentType,
 } from './model-contract.js';
+import { buildCodexWorkerEnv, cleanupTeamCodexMirrors } from './codex-home.js';
 import { CANONICAL_TEAM_ROLES } from '../shared/types.js';
 import type { CanonicalTeamRole } from '../shared/types.js';
 import { normalizeDelegationRole } from '../features/delegation-routing/types.js';
@@ -211,6 +212,7 @@ export async function scaleUp(
           }
         } catch { /* best-effort pane/worktree cleanup */ }
       }
+      try { await cleanupTeamCodexMirrors(leaderCwd, sanitized); } catch { /* best-effort */ }
       for (const pending of pendingWorktrees) {
         if (cleanedWorktrees.has(pending.workerName)) continue;
         try {
@@ -379,8 +381,12 @@ export async function scaleUp(
       }
 
       // Rebuild env using the final agentType (fallback may have swapped it).
+      const codexHomeResult = await buildCodexWorkerEnv(
+        leaderCwd, sanitized, workerName, workerAgentType,
+      );
       const extraEnv: Record<string, string> = {
         ...getModelWorkerEnv(sanitized, workerName, workerAgentType, env),
+        ...codexHomeResult.env,
         OMC_TEAM_STATE_ROOT: teamStateRoot,
         OMC_TEAM_LEADER_CWD: leaderCwd,
         ...(worktree ? { OMC_TEAM_WORKTREE_PATH: worktree.path, OMC_TEAM_WORKER_CWD: workerCwd } : {}),

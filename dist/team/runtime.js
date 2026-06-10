@@ -3,6 +3,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { tmuxExecAsync } from '../cli/tmux-utils.js';
 import { buildWorkerArgv, resolveValidatedBinaryPath, getWorkerEnv as getModelWorkerEnv, isPromptModeAgent, getPromptModeArgs, resolveClaudeWorkerModel } from './model-contract.js';
+import { buildCodexWorkerEnv, cleanupTeamCodexMirrors } from './codex-home.js';
 import { validateTeamName } from './team-name.js';
 import { createTeamSession, spawnWorkerInPane, sendToWorker, isWorkerAlive, killTeamSession, resolveSplitPaneWorkerPaneIds, waitForPaneReady, applyMainVerticalLayout, killTeamPane, } from './tmux-session.js';
 import { composeInitialInbox, ensureWorkerStateDir, writeWorkerOverlay, generateTriggerMessage, } from './worker-bootstrap.js';
@@ -547,7 +548,11 @@ export async function spawnWorkerForTask(runtime, workerNameValue, taskIndex) {
     // for interactive agents it is sent via tmux send-keys after startup.
     const instruction = buildInitialTaskInstruction(runtime.teamName, workerNameValue, task, taskId);
     await composeInitialInbox(runtime.teamName, workerNameValue, instruction, runtime.cwd);
-    const envVars = getModelWorkerEnv(runtime.teamName, workerNameValue, agentType);
+    const codexHomeResult = await buildCodexWorkerEnv(runtime.cwd, runtime.teamName, workerNameValue, agentType);
+    const envVars = {
+        ...getModelWorkerEnv(runtime.teamName, workerNameValue, agentType),
+        ...codexHomeResult.env,
+    };
     const resolvedBinaryPath = runtime.resolvedBinaryPaths?.[agentType] ?? resolveValidatedBinaryPath(agentType);
     if (!runtime.resolvedBinaryPaths) {
         runtime.resolvedBinaryPaths = {};
@@ -753,6 +758,12 @@ export async function shutdownTeam(teamName, sessionName, cwd, timeoutMs = 30_00
     }
     catch {
         // best-effort: worktree cleanup is dormant in current runtime paths
+    }
+    try {
+        await cleanupTeamCodexMirrors(cwd, teamName);
+    }
+    catch {
+        // best-effort
     }
     try {
         await rm(root, { recursive: true, force: true });
