@@ -29623,6 +29623,8 @@ function seedWorkerConfig(durableBase) {
   let personality = "pragmatic";
   let modelProvider = "";
   let model = "";
+  let modelReasoningEffort = "";
+  let planModeReasoningEffort = "";
   let providersBlock = "";
   let featuresBlock = "";
   if ((0, import_node_fs6.existsSync)(MAIN_CONFIG)) {
@@ -29633,11 +29635,15 @@ function seedWorkerConfig(durableBase) {
       const personalityM = main3.match(/^personality\s*=\s*"(.+)"/m);
       const modelProviderM = main3.match(/^model_provider\s*=\s*"(.+)"/m);
       const modelM = main3.match(/^model\s*=\s*"(.+)"/m);
+      const modelReasoningM = main3.match(/^model_reasoning_effort\s*=\s*"(.+)"/m);
+      const planModeReasoningM = main3.match(/^plan_mode_reasoning_effort\s*=\s*"(.+)"/m);
       if (sandboxM) sandbox = sandboxM[1];
       if (approvalM) approval = approvalM[1];
       if (personalityM) personality = personalityM[1];
       if (modelProviderM) modelProvider = modelProviderM[1];
       if (modelM) model = modelM[1];
+      if (modelReasoningM) modelReasoningEffort = modelReasoningM[1];
+      if (planModeReasoningM) planModeReasoningEffort = planModeReasoningM[1];
       const allSections = ["[features]"];
       for (const m of main3.matchAll(/^\[model_providers[^\]]*\]/gm)) {
         allSections.push(m[0]);
@@ -29672,6 +29678,8 @@ function seedWorkerConfig(durableBase) {
     "",
     ...modelProvider ? [`model_provider = "${modelProvider}"`] : [],
     ...model ? [`model = "${model}"`] : [],
+    ...modelReasoningEffort ? [`model_reasoning_effort = "${modelReasoningEffort}"`] : [],
+    ...planModeReasoningEffort ? [`plan_mode_reasoning_effort = "${planModeReasoningEffort}"`] : [],
     `sandbox_mode = "${sandbox}"`,
     `approval_policy = "${approval}"`,
     `personality = "${personality}"`,
