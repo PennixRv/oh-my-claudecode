@@ -200,6 +200,8 @@ function seedWorkerConfig(durableBase: string): void {
   let sandbox = 'danger-full-access';
   let approval = 'never';
   let personality = 'pragmatic';
+  let modelProvider = '';
+  let model = '';
   let providersBlock = '';
   let featuresBlock = '';
 
@@ -209,9 +211,13 @@ function seedWorkerConfig(durableBase: string): void {
       const sandboxM = main.match(/^sandbox_mode\s*=\s*"(.+)"/m);
       const approvalM = main.match(/^approval_policy\s*=\s*"(.+)"/m);
       const personalityM = main.match(/^personality\s*=\s*"(.+)"/m);
+      const modelProviderM = main.match(/^model_provider\s*=\s*"(.+)"/m);
+      const modelM = main.match(/^model\s*=\s*"(.+)"/m);
       if (sandboxM) sandbox = sandboxM[1];
       if (approvalM) approval = approvalM[1];
       if (personalityM) personality = personalityM[1];
+      if (modelProviderM) modelProvider = modelProviderM[1];
+      if (modelM) model = modelM[1];
 
       // Carry over [model_providers*] and [features] blocks verbatim.
       // [model_providers.cch] etc. tell Codex to route through CCH, not api.openai.com.
@@ -254,6 +260,8 @@ function seedWorkerConfig(durableBase: string): void {
     '# API credentials (OPENAI_API_KEY, etc.) are injected via environment variables.',
     '# Customize this file to tune worker behavior; it will not be overwritten on re-seed.',
     '',
+    ...(modelProvider ? [`model_provider = "${modelProvider}"`] : []),
+    ...(model ? [`model = "${model}"`] : []),
     `sandbox_mode = "${sandbox}"`,
     `approval_policy = "${approval}"`,
     `personality = "${personality}"`,

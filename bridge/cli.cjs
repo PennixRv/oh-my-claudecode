@@ -29621,6 +29621,8 @@ function seedWorkerConfig(durableBase) {
   let sandbox = "danger-full-access";
   let approval = "never";
   let personality = "pragmatic";
+  let modelProvider = "";
+  let model = "";
   let providersBlock = "";
   let featuresBlock = "";
   if ((0, import_node_fs6.existsSync)(MAIN_CONFIG)) {
@@ -29629,9 +29631,13 @@ function seedWorkerConfig(durableBase) {
       const sandboxM = main3.match(/^sandbox_mode\s*=\s*"(.+)"/m);
       const approvalM = main3.match(/^approval_policy\s*=\s*"(.+)"/m);
       const personalityM = main3.match(/^personality\s*=\s*"(.+)"/m);
+      const modelProviderM = main3.match(/^model_provider\s*=\s*"(.+)"/m);
+      const modelM = main3.match(/^model\s*=\s*"(.+)"/m);
       if (sandboxM) sandbox = sandboxM[1];
       if (approvalM) approval = approvalM[1];
       if (personalityM) personality = personalityM[1];
+      if (modelProviderM) modelProvider = modelProviderM[1];
+      if (modelM) model = modelM[1];
       const allSections = ["[features]"];
       for (const m of main3.matchAll(/^\[model_providers[^\]]*\]/gm)) {
         allSections.push(m[0]);
@@ -29664,6 +29670,8 @@ function seedWorkerConfig(durableBase) {
     "# API credentials (OPENAI_API_KEY, etc.) are injected via environment variables.",
     "# Customize this file to tune worker behavior; it will not be overwritten on re-seed.",
     "",
+    ...modelProvider ? [`model_provider = "${modelProvider}"`] : [],
+    ...model ? [`model = "${model}"`] : [],
     `sandbox_mode = "${sandbox}"`,
     `approval_policy = "${approval}"`,
     `personality = "${personality}"`,
