@@ -33,4 +33,7 @@ export declare function inferLaneIntent(text: string): LaneIntent;
  * 10. Unknown → fallbackRole (low)
  */
 export declare function routeTaskToRole(taskSubject: string, taskDescription: string, fallbackRole: string): RoleRouterResult;
+/** Task shape — what kind of work the task represents. */
+export type TaskShape = 'code_generation' | 'bug_fix' | 'refactoring' | 'debugging' | 'review' | 'security_audit' | 'documentation' | 'design' | 'testing' | 'large_scan' | 'unknown';
+export declare function classifyTaskShape(text: string): TaskShape;
 //# sourceMappingURL=role-router.d.ts.map

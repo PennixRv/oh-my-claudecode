@@ -20,8 +20,9 @@ export const CONTRACT_ROLES = new Set([
     'code-reviewer',
     'security-reviewer',
     'test-engineer',
+    'verifier',
 ]);
-const VALID_VERDICTS = new Set(['approve', 'revise', 'reject']);
+const VALID_VERDICTS = new Set(['approve', 'concern', 'revise', 'reject']);
 const VALID_SEVERITIES = new Set(['critical', 'major', 'minor', 'nit']);
 /**
  * Returns true when a role + provider pair requires the verdict-output contract.
@@ -63,7 +64,7 @@ export function renderCliWorkerOutputContract(role, output_file) {
         '{',
         `  "role": "${role}",`,
         '  "task_id": "<task id from the assignment above>",',
-        '  "verdict": "approve" | "revise" | "reject",',
+        '  "verdict": "approve" | "concern" | "revise" | "reject",',
         '  "summary": "one- or two-sentence overall assessment",',
         '  "findings": [',
         '    {',
@@ -78,10 +79,11 @@ export function renderCliWorkerOutputContract(role, output_file) {
         '',
         'Rules:',
         '- Write valid JSON only (no surrounding prose, no markdown fences in the file).',
-        '- `verdict` MUST be one of `approve`, `revise`, or `reject`.',
+        '- `verdict` MUST be one of `approve`, `concern`, `revise`, or `reject`.',
+        '- Use `approve` when you have no concerns.',
+        '- Use `concern` when you have advisory reservations but no blocking issues (the task completes with a note).',
+        '- Use `revise` or `reject` for blocking issues that must be addressed before the task can be considered done.',
         '- Each finding MUST carry a `severity` from the enum above.',
-        '- Use `approve` only when you have no blocking concerns.',
-        '- If you cannot produce a verdict, write `{"verdict":"revise", ...}` with an explanatory finding rather than exiting silently.',
         '- The team leader reads this file to mark the task complete; omitting it leaves the task stuck in_progress pending human review.',
         '',
     ].join('\n');

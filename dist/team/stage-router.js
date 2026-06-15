@@ -30,6 +30,12 @@ const ROLE_TO_AGENT = {
     'code-simplifier': 'codeSimplifier',
     explore: 'explore',
     'document-specialist': 'documentSpecialist',
+    // 5 new worker roles
+    verifier: 'verifier',
+    'qa-tester': 'qaTester',
+    scientist: 'scientist',
+    tracer: 'tracer',
+    'git-master': 'gitMaster',
 };
 /** Default model tier per canonical role (mirrors buildDefaultConfig().agents tiers). */
 const ROLE_DEFAULT_TIER = {
@@ -38,16 +44,55 @@ const ROLE_DEFAULT_TIER = {
     analyst: 'HIGH',
     architect: 'HIGH',
     executor: 'MEDIUM',
-    debugger: 'MEDIUM',
+    debugger: 'HIGH',
     critic: 'HIGH',
     'code-reviewer': 'HIGH',
-    'security-reviewer': 'MEDIUM',
-    'test-engineer': 'MEDIUM',
-    designer: 'MEDIUM',
+    'security-reviewer': 'HIGH',
+    'test-engineer': 'LOW',
+    designer: 'HIGH',
     writer: 'LOW',
     'code-simplifier': 'HIGH',
     explore: 'LOW',
     'document-specialist': 'MEDIUM',
+    // 5 new worker roles
+    verifier: 'HIGH',
+    'qa-tester': 'LOW',
+    scientist: 'HIGH',
+    tracer: 'HIGH',
+    'git-master': 'LOW',
+};
+/** Default execution mode per canonical role. */
+const ROLE_DEFAULT_MODE = {
+    orchestrator: 'SINGLE',
+    critic: 'DUAL',
+    'security-reviewer': 'DUAL',
+    'code-reviewer': 'DUAL',
+    architect: 'DUAL_STAR',
+    analyst: 'DUAL_STAR',
+    debugger: 'DUAL_STAR',
+    verifier: 'DUAL_STAR',
+    executor: 'SINGLE_PLUS',
+    'test-engineer': 'SINGLE_PLUS',
+    'qa-tester': 'SINGLE_PLUS',
+    'git-master': 'SINGLE_PLUS',
+    planner: 'SINGLE',
+    designer: 'SINGLE',
+    'code-simplifier': 'SINGLE',
+    'document-specialist': 'SINGLE',
+    explore: 'SINGLE',
+    writer: 'SINGLE',
+    tracer: 'SINGLE',
+    scientist: 'SINGLE',
+};
+/** Default secondary model for DUAL / DUAL* roles (claude provider = DSv4-Pro). */
+const ROLE_DEFAULT_SECONDARY = {
+    critic: { provider: 'claude', model: 'HIGH' },
+    'security-reviewer': { provider: 'claude', model: 'HIGH' },
+    'code-reviewer': { provider: 'codex', model: 'HIGH' },
+    architect: { provider: 'claude', model: 'HIGH' },
+    analyst: { provider: 'claude', model: 'HIGH' },
+    debugger: { provider: 'claude', model: 'HIGH' },
+    verifier: { provider: 'claude', model: 'HIGH' },
 };
 const TIER_SET = new Set(['HIGH', 'MEDIUM', 'LOW']);
 function isTier(value) {
@@ -141,7 +186,29 @@ export function resolveRoleAssignment(role, cfg) {
         ? resolveClaudeModel(canonical, spec?.model, cfg)
         : resolveExternalModel(provider, spec?.model, cfg);
     const agent = spec?.agent ?? ROLE_TO_AGENT[canonical];
-    return { provider, model, agent };
+    // Resolve execution mode (user override > role default > SINGLE)
+    const executionMode = spec?.executionMode
+        ?? ROLE_DEFAULT_MODE[canonical]
+        ?? 'SINGLE';
+    // Resolve secondary assignment (user override > default for DUAL/DUAL* roles)
+    let secondary;
+    if (executionMode === 'DUAL' || executionMode === 'DUAL_STAR') {
+        const secSpec = spec?.secondary;
+        const secDefault = ROLE_DEFAULT_SECONDARY[canonical];
+        const secProvider = secSpec?.provider ?? secDefault?.provider ?? 'claude';
+        const secModel = secProvider === 'claude'
+            ? resolveClaudeModel(canonical, secSpec?.model ?? secDefault?.model, cfg)
+            : resolveExternalModel(secProvider, secSpec?.model, cfg);
+        secondary = { provider: secProvider, model: secModel, agent };
+    }
+    return {
+        provider, model, agent,
+        executionMode,
+        ...(secondary ? { secondary } : {}),
+        ...(spec?.synthesis ? { synthesis: spec.synthesis } : {}),
+        ...(spec?.dualStarTriggers ? { dualStarTriggers: spec.dualStarTriggers } : {}),
+        ...(spec?.ladder ? { ladder: spec.ladder } : {}),
+    };
 }
 function isCanonicalRole(value) {
     return CANONICAL_TEAM_ROLES.includes(value);
@@ -159,12 +226,6 @@ export function buildResolvedRoutingSnapshot(cfg) {
     const roleRouting = cfg.team?.roleRouting;
     for (const role of CANONICAL_TEAM_ROLES) {
         const primary = resolveRoleAssignment(role, cfg);
-        // Fallback is always a Claude worker. Its model is the Claude-tier
-        // resolution of the role's spec (so tier stickiness survives fallback),
-        // NOT primary.model (which may be a codex/gemini model ID).
-        // When primary is external and spec.model is an explicit non-tier id
-        // (e.g., 'gpt-5.3-codex'), drop it for fallback so claude doesn't
-        // receive an external model id; tier names always survive.
         const spec = getRoleRoutingSpec(roleRouting, role);
         const isExternalPrimary = primary.provider !== 'claude';
         const fallbackModelInput = isExternalPrimary && spec?.model && !isTier(spec.model)
@@ -175,7 +236,16 @@ export function buildResolvedRoutingSnapshot(cfg) {
             model: resolveClaudeModel(role, fallbackModelInput, cfg),
             agent: primary.agent,
         };
-        out[role] = { primary, fallback };
+        const mode = primary.executionMode ?? ROLE_DEFAULT_MODE[role] ?? 'SINGLE';
+        out[role] = {
+            primary,
+            fallback,
+            mode,
+            ...(primary.secondary ? { secondary: primary.secondary } : {}),
+            ...(primary.synthesis ? { synthesis: primary.synthesis } : {}),
+            ...(primary.dualStarTriggers ? { dualStarTriggers: primary.dualStarTriggers } : {}),
+            ...(primary.ladder ? { ladder: primary.ladder } : {}),
+        };
     }
     return out;
 }

@@ -18,7 +18,7 @@ import type { CanonicalTeamRole } from '../shared/types.js';
 import type { CliAgentType } from './model-contract.js';
 /** Roles that emit a structured verdict and therefore use the output-file contract. */
 export declare const CONTRACT_ROLES: ReadonlySet<CanonicalTeamRole>;
-export type CliWorkerVerdict = 'approve' | 'revise' | 'reject';
+export type CliWorkerVerdict = 'approve' | 'concern' | 'revise' | 'reject';
 export type CliWorkerFindingSeverity = 'critical' | 'major' | 'minor' | 'nit';
 export interface CliWorkerFinding {
     severity: CliWorkerFindingSeverity;

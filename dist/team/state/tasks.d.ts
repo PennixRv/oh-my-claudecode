@@ -49,6 +49,27 @@ export declare function listTasks(teamName: string, cwd: string, deps: {
 }): Promise<TeamTask[]>;
 export declare const CLAIM_TTL_MS: number;
 export declare const CLAIM_GRACE_MS: number;
+/** Dependencies for system-only parent task transitions (bypasses worker claim checks). */
+export interface TransitionParentDeps {
+    teamName: string;
+    cwd: string;
+    readTask: (teamName: string, taskId: string, cwd: string) => Promise<TeamTask | null>;
+    withTaskClaimLock: <T>(teamName: string, taskId: string, cwd: string, fn: () => Promise<T>) => Promise<{
+        ok: true;
+        value: T;
+    } | {
+        ok: false;
+    }>;
+    normalizeTask: (task: TeamTask) => TeamTaskV2;
+    canTransitionTaskStatus: (from: TeamTaskStatus, to: TeamTaskStatus) => boolean;
+    taskFilePath: (teamName: string, taskId: string, cwd: string) => string;
+    writeAtomic: (path: string, data: string) => Promise<void>;
+}
+/**
+ * System-only transition for DUAL parent tasks. Bypasses owner/claim_token checks
+ * since parent tasks are never claimed by workers.
+ */
+export declare function transitionParentTask(parentTaskId: string, from: TeamTaskStatus, to: TeamTaskStatus, extraFields: Partial<Pick<TeamTaskV2, 'metadata' | 'completed_at'>> | undefined, deps: TransitionParentDeps): Promise<TransitionTaskResult>;
 /**
  * Renew the claim lease for a task owned by the given worker.
  * Called from the heartbeat path so long-running tasks stay claimed.

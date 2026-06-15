@@ -3084,7 +3084,13 @@ var init_types = __esm({
       "writer",
       "code-simplifier",
       "explore",
-      "document-specialist"
+      "document-specialist",
+      // Worker roles added for 19-role mapping spec
+      "verifier",
+      "qa-tester",
+      "scientist",
+      "tracer",
+      "git-master"
     ];
     KNOWN_AGENT_NAMES = [
       "omc",
@@ -4174,6 +4180,45 @@ function validateTeamConfig(config2) {
         throw new Error(
           `[OMC] team.roleRouting.${rawRoleKey}.agent: unknown agent "${String(spec.agent)}". Allowed: ${[...KNOWN_AGENT_NAME_SET].join(", ")}`
         );
+      }
+    }
+    if (spec.executionMode !== void 0) {
+      const VALID_MODES = /* @__PURE__ */ new Set(["SINGLE", "SINGLE_PLUS", "DUAL", "DUAL_STAR"]);
+      if (typeof spec.executionMode !== "string" || !VALID_MODES.has(spec.executionMode)) {
+        throw new Error(
+          `[OMC] team.roleRouting.${rawRoleKey}.executionMode: must be SINGLE, SINGLE_PLUS, DUAL, or DUAL_STAR, got "${String(spec.executionMode)}"`
+        );
+      }
+    }
+    if (spec.secondary !== void 0) {
+      if (typeof spec.secondary !== "object" || spec.secondary === null) {
+        throw new Error(`[OMC] team.roleRouting.${rawRoleKey}.secondary: must be an object`);
+      }
+      const sec = spec.secondary;
+      if (sec.provider !== void 0) {
+        if (typeof sec.provider !== "string" || !TEAM_ROLE_PROVIDERS.has(sec.provider)) {
+          throw new Error(
+            `[OMC] team.roleRouting.${rawRoleKey}.secondary.provider: invalid "${String(sec.provider)}". Allowed: ${[...TEAM_ROLE_PROVIDERS].join(", ")}`
+          );
+        }
+      }
+      if (sec.model !== void 0 && !isValidModelValue(sec.model)) {
+        throw new Error(
+          `[OMC] team.roleRouting.${rawRoleKey}.secondary.model: must be a tier name or model ID string`
+        );
+      }
+    }
+    if (spec.synthesis !== void 0) {
+      if (typeof spec.synthesis !== "object" || spec.synthesis === null) {
+        throw new Error(`[OMC] team.roleRouting.${rawRoleKey}.synthesis: must be an object`);
+      }
+      const syn = spec.synthesis;
+      if (syn.maxReviseCycles !== void 0) {
+        if (typeof syn.maxReviseCycles !== "number" || syn.maxReviseCycles < 1 || syn.maxReviseCycles > 10) {
+          throw new Error(
+            `[OMC] team.roleRouting.${rawRoleKey}.synthesis.maxReviseCycles: must be a number between 1-10`
+          );
+        }
       }
     }
   }
@@ -28261,21 +28306,39 @@ function isTerminalTeamTaskStatus(status) {
 function canTransitionTeamTaskStatus(from, to) {
   return TEAM_TASK_STATUS_TRANSITIONS[from]?.includes(to) ?? false;
 }
-var TEAM_NAME_SAFE_PATTERN, WORKER_NAME_SAFE_PATTERN, TASK_ID_SAFE_PATTERN, TEAM_TASK_STATUSES, TEAM_TERMINAL_TASK_STATUSES, TEAM_TASK_STATUS_TRANSITIONS, TEAM_EVENT_TYPES, TEAM_TASK_APPROVAL_STATUSES;
+function isDualParentTask(status) {
+  return TEAM_DUAL_TASK_STATUSES.has(status);
+}
+var TEAM_NAME_SAFE_PATTERN, WORKER_NAME_SAFE_PATTERN, TASK_ID_SAFE_PATTERN, TEAM_TASK_STATUSES, TEAM_TERMINAL_TASK_STATUSES, TEAM_DUAL_TASK_STATUSES, TEAM_TASK_STATUS_TRANSITIONS, TEAM_EVENT_TYPES, TEAM_TASK_APPROVAL_STATUSES;
 var init_contracts = __esm({
   "src/team/contracts.ts"() {
     "use strict";
     TEAM_NAME_SAFE_PATTERN = /^[a-z0-9][a-z0-9-]{0,29}$/;
     WORKER_NAME_SAFE_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
     TASK_ID_SAFE_PATTERN = /^\d{1,20}$/;
-    TEAM_TASK_STATUSES = ["pending", "blocked", "in_progress", "completed", "failed"];
+    TEAM_TASK_STATUSES = [
+      "pending",
+      "blocked",
+      "in_progress",
+      "completed",
+      "failed",
+      // DUAL parent task statuses (system-only, not for worker claim/transition)
+      "dual_pending",
+      "dual_in_progress",
+      "dual_synthesis"
+    ];
     TEAM_TERMINAL_TASK_STATUSES = /* @__PURE__ */ new Set(["completed", "failed"]);
+    TEAM_DUAL_TASK_STATUSES = /* @__PURE__ */ new Set(["dual_pending", "dual_in_progress", "dual_synthesis"]);
     TEAM_TASK_STATUS_TRANSITIONS = {
       pending: [],
       blocked: [],
       in_progress: ["completed", "failed"],
       completed: [],
-      failed: []
+      failed: [],
+      // DUAL parent task transitions (system-only via transitionParentTask)
+      dual_pending: ["dual_in_progress", "failed"],
+      dual_in_progress: ["dual_synthesis", "failed"],
+      dual_synthesis: ["completed", "failed", "dual_in_progress"]
     };
     TEAM_EVENT_TYPES = [
       "task_completed",
@@ -28324,6 +28387,7 @@ async function claimTask(taskId, workerName2, expectedVersion, deps) {
     }
     if (deps.isTerminalTaskStatus(v.status)) return { ok: false, error: "already_terminal" };
     if (v.status === "in_progress") return { ok: false, error: "claim_conflict" };
+    if (isDualParentTask(v.status)) return { ok: false, error: "claim_conflict" };
     if (v.status === "pending" || v.status === "blocked") {
       if (v.claim) return { ok: false, error: "claim_conflict" };
       if (v.owner && v.owner !== workerName2) return { ok: false, error: "claim_conflict" };
@@ -28483,6 +28547,29 @@ async function listTasks(teamName, cwd2, deps) {
   tasks.sort((a, b) => Number(a.id) - Number(b.id));
   return tasks;
 }
+async function transitionParentTask(parentTaskId, from, to, extraFields, deps) {
+  if (!deps.canTransitionTaskStatus(from, to)) return { ok: false, error: "invalid_transition" };
+  const lock = await deps.withTaskClaimLock(deps.teamName, parentTaskId, deps.cwd, async () => {
+    const current = await deps.readTask(deps.teamName, parentTaskId, deps.cwd);
+    if (!current) return { ok: false, error: "task_not_found" };
+    const v = deps.normalizeTask(current);
+    if (v.status !== from) return { ok: false, error: "invalid_transition" };
+    if (!deps.canTransitionTaskStatus(v.status, to)) return { ok: false, error: "invalid_transition" };
+    if (!isDualParentTask(v.status)) return { ok: false, error: "invalid_transition" };
+    const updated = {
+      ...v,
+      status: to,
+      completed_at: extraFields?.completed_at ?? (to === "completed" ? (/* @__PURE__ */ new Date()).toISOString() : v.completed_at),
+      metadata: extraFields?.metadata ?? v.metadata,
+      claim: void 0,
+      version: v.version + 1
+    };
+    await deps.writeAtomic(deps.taskFilePath(deps.teamName, parentTaskId, deps.cwd), JSON.stringify(updated, null, 2));
+    return { ok: true, task: updated };
+  });
+  if (!lock.ok) return { ok: false, error: "claim_conflict" };
+  return lock.value;
+}
 async function renewTaskClaim(teamName, taskId, workerName2, cwd2, deps) {
   const lock = await deps.withTaskClaimLock(teamName, taskId, cwd2, async () => {
     const v = await deps.readTask(teamName, taskId, cwd2);
@@ -28511,6 +28598,7 @@ var init_tasks = __esm({
     import_path81 = require("path");
     import_fs65 = require("fs");
     import_promises6 = require("fs/promises");
+    init_contracts();
     CLAIM_TTL_MS = 15 * 60 * 1e3;
     CLAIM_GRACE_MS = 5 * 60 * 1e3;
   }
@@ -29375,13 +29463,14 @@ async function getTeamSummary(teamName, cwd2) {
   const tasksStartMs = import_perf_hooks.performance.now();
   const tasks = await listTasksFromFiles(teamName, cwd2);
   const tasksLoadedMs = import_perf_hooks.performance.now() - tasksStartMs;
-  const counts = { total: tasks.length, pending: 0, blocked: 0, in_progress: 0, completed: 0, failed: 0 };
+  const counts = { total: tasks.length, pending: 0, blocked: 0, in_progress: 0, completed: 0, failed: 0, dual: 0 };
   for (const t of tasks) {
     if (t.status === "pending") counts.pending++;
     else if (t.status === "blocked") counts.blocked++;
     else if (t.status === "in_progress") counts.in_progress++;
     else if (t.status === "completed") counts.completed++;
     else if (t.status === "failed") counts.failed++;
+    else if (t.status === "dual_pending" || t.status === "dual_in_progress" || t.status === "dual_synthesis") counts.in_progress++;
   }
   const workerSummaries = [];
   const nonReportingWorkers = [];
@@ -29828,7 +29917,9 @@ var init_events = __esm({
 // src/team/phase-controller.ts
 function inferPhase(tasks) {
   if (tasks.length === 0) return "initializing";
-  const inProgress = tasks.filter((t) => t.status === "in_progress");
+  const inProgress = tasks.filter(
+    (t) => t.status === "in_progress" || t.status === "dual_pending" || t.status === "dual_in_progress" || t.status === "dual_synthesis"
+  );
   const pending = tasks.filter((t) => t.status === "pending");
   const permanentlyFailed = tasks.filter(
     (t) => t.status === "completed" && t.metadata?.permanentlyFailed === true
@@ -32738,7 +32829,25 @@ function resolveRoleAssignment(role, cfg) {
   const provider = isOrchestrator ? "claude" : spec?.provider ?? "claude";
   const model = provider === "claude" ? resolveClaudeModel(canonical, spec?.model, cfg) : resolveExternalModel(provider, spec?.model, cfg);
   const agent = spec?.agent ?? ROLE_TO_AGENT[canonical];
-  return { provider, model, agent };
+  const executionMode = spec?.executionMode ?? ROLE_DEFAULT_MODE[canonical] ?? "SINGLE";
+  let secondary;
+  if (executionMode === "DUAL" || executionMode === "DUAL_STAR") {
+    const secSpec = spec?.secondary;
+    const secDefault = ROLE_DEFAULT_SECONDARY[canonical];
+    const secProvider = secSpec?.provider ?? secDefault?.provider ?? "claude";
+    const secModel = secProvider === "claude" ? resolveClaudeModel(canonical, secSpec?.model ?? secDefault?.model, cfg) : resolveExternalModel(secProvider, secSpec?.model, cfg);
+    secondary = { provider: secProvider, model: secModel, agent };
+  }
+  return {
+    provider,
+    model,
+    agent,
+    executionMode,
+    ...secondary ? { secondary } : {},
+    ...spec?.synthesis ? { synthesis: spec.synthesis } : {},
+    ...spec?.dualStarTriggers ? { dualStarTriggers: spec.dualStarTriggers } : {},
+    ...spec?.ladder ? { ladder: spec.ladder } : {}
+  };
 }
 function isCanonicalRole(value) {
   return CANONICAL_TEAM_ROLES.includes(value);
@@ -32756,11 +32865,20 @@ function buildResolvedRoutingSnapshot(cfg) {
       model: resolveClaudeModel(role, fallbackModelInput, cfg),
       agent: primary.agent
     };
-    out[role] = { primary, fallback };
+    const mode = primary.executionMode ?? ROLE_DEFAULT_MODE[role] ?? "SINGLE";
+    out[role] = {
+      primary,
+      fallback,
+      mode,
+      ...primary.secondary ? { secondary: primary.secondary } : {},
+      ...primary.synthesis ? { synthesis: primary.synthesis } : {},
+      ...primary.dualStarTriggers ? { dualStarTriggers: primary.dualStarTriggers } : {},
+      ...primary.ladder ? { ladder: primary.ladder } : {}
+    };
   }
   return out;
 }
-var ROLE_TO_AGENT, ROLE_DEFAULT_TIER, TIER_SET;
+var ROLE_TO_AGENT, ROLE_DEFAULT_TIER, ROLE_DEFAULT_MODE, ROLE_DEFAULT_SECONDARY, TIER_SET;
 var init_stage_router = __esm({
   "src/team/stage-router.ts"() {
     "use strict";
@@ -32782,7 +32900,13 @@ var init_stage_router = __esm({
       writer: "writer",
       "code-simplifier": "codeSimplifier",
       explore: "explore",
-      "document-specialist": "documentSpecialist"
+      "document-specialist": "documentSpecialist",
+      // 5 new worker roles
+      verifier: "verifier",
+      "qa-tester": "qaTester",
+      scientist: "scientist",
+      tracer: "tracer",
+      "git-master": "gitMaster"
     };
     ROLE_DEFAULT_TIER = {
       orchestrator: "HIGH",
@@ -32790,22 +32914,66 @@ var init_stage_router = __esm({
       analyst: "HIGH",
       architect: "HIGH",
       executor: "MEDIUM",
-      debugger: "MEDIUM",
+      debugger: "HIGH",
       critic: "HIGH",
       "code-reviewer": "HIGH",
-      "security-reviewer": "MEDIUM",
-      "test-engineer": "MEDIUM",
-      designer: "MEDIUM",
+      "security-reviewer": "HIGH",
+      "test-engineer": "LOW",
+      designer: "HIGH",
       writer: "LOW",
       "code-simplifier": "HIGH",
       explore: "LOW",
-      "document-specialist": "MEDIUM"
+      "document-specialist": "MEDIUM",
+      // 5 new worker roles
+      verifier: "HIGH",
+      "qa-tester": "LOW",
+      scientist: "HIGH",
+      tracer: "HIGH",
+      "git-master": "LOW"
+    };
+    ROLE_DEFAULT_MODE = {
+      orchestrator: "SINGLE",
+      critic: "DUAL",
+      "security-reviewer": "DUAL",
+      "code-reviewer": "DUAL",
+      architect: "DUAL_STAR",
+      analyst: "DUAL_STAR",
+      debugger: "DUAL_STAR",
+      verifier: "DUAL_STAR",
+      executor: "SINGLE_PLUS",
+      "test-engineer": "SINGLE_PLUS",
+      "qa-tester": "SINGLE_PLUS",
+      "git-master": "SINGLE_PLUS",
+      planner: "SINGLE",
+      designer: "SINGLE",
+      "code-simplifier": "SINGLE",
+      "document-specialist": "SINGLE",
+      explore: "SINGLE",
+      writer: "SINGLE",
+      tracer: "SINGLE",
+      scientist: "SINGLE"
+    };
+    ROLE_DEFAULT_SECONDARY = {
+      critic: { provider: "claude", model: "HIGH" },
+      "security-reviewer": { provider: "claude", model: "HIGH" },
+      "code-reviewer": { provider: "codex", model: "HIGH" },
+      architect: { provider: "claude", model: "HIGH" },
+      analyst: { provider: "claude", model: "HIGH" },
+      debugger: { provider: "claude", model: "HIGH" },
+      verifier: { provider: "claude", model: "HIGH" }
     };
     TIER_SET = /* @__PURE__ */ new Set(["HIGH", "MEDIUM", "LOW"]);
   }
 });
 
 // src/team/role-router.ts
+var role_router_exports = {};
+__export(role_router_exports, {
+  ROLE_KEYWORDS: () => ROLE_KEYWORDS,
+  classifyTaskShape: () => classifyTaskShape,
+  inferLaneIntent: () => inferLaneIntent,
+  routeTaskToRole: () => routeTaskToRole
+});
 function inferLaneIntent(text) {
   if (!text || text.trim().length === 0) return "unknown";
   for (const { intent, patterns } of INTENT_PATTERNS) {
@@ -32863,6 +33031,15 @@ function routeTaskToRole(taskSubject, taskDescription, fallbackRole) {
     }
   }
 }
+function classifyTaskShape(text) {
+  if (!text || text.trim().length === 0) return "unknown";
+  for (const { shape, patterns } of SHAPE_PATTERNS) {
+    for (const pattern of patterns) {
+      if (pattern.test(text)) return shape;
+    }
+  }
+  return "unknown";
+}
 function scoreByKeywords(text) {
   let bestRole = null;
   let bestCount = 0;
@@ -32875,7 +33052,7 @@ function scoreByKeywords(text) {
   }
   return bestRole && bestCount > 0 ? { role: bestRole, count: bestCount } : null;
 }
-var INTENT_PATTERNS, SECURITY_DOMAIN_RE, ROLE_KEYWORDS;
+var INTENT_PATTERNS, SECURITY_DOMAIN_RE, ROLE_KEYWORDS, SHAPE_PATTERNS;
 var init_role_router = __esm({
   "src/team/role-router.ts"() {
     "use strict";
@@ -32987,6 +33164,114 @@ var init_role_router = __esm({
       "test-engineer": [/\btest/i, /\bverif/i, /\bvalidat/i, /\bspec\b/i, /\bcoverage\b/i],
       executor: [/\bimplement/i, /\bbuild\b/i, /\bcreate\b/i, /\badd\b/i, /\bwrite\b/i]
     };
+    SHAPE_PATTERNS = [
+      {
+        shape: "bug_fix",
+        patterns: [
+          /\bfix(?:ing|es)?\b/i,
+          /\bbug\b/i,
+          /\bregression\b/i,
+          /\bissue\b/i,
+          /\brepair\b/i,
+          /\bhotfix\b/i,
+          /\bpatch\b/i,
+          /\bresolve\b/i
+        ]
+      },
+      {
+        shape: "debugging",
+        patterns: [
+          /\bdebug(?:ging)?\b/i,
+          /\binvestigate\b/i,
+          /\broot.?cause\b/i,
+          /\bdiagnos(?:e|ing)\b/i,
+          /\btrace\b/i,
+          /\bwhy\s+(?:is|does|did)\b/i
+        ]
+      },
+      {
+        shape: "refactoring",
+        patterns: [
+          /\brefactor(?:ing)?\b/i,
+          /\bsimplif(?:y|ying)\b/i,
+          /\bclean\s*up\b/i,
+          /\bdead\s+code\b/i,
+          /\bunused\b/i,
+          /\bmigrat(?:e|ion)\b/i
+        ]
+      },
+      {
+        shape: "code_generation",
+        patterns: [
+          /\bimplement(?:ing|ation)?\b/i,
+          /\badd\s+(?:the\s+)?(?:feature|function|method|class|endpoint)\b/i,
+          /\bbuild\s+(?:the\s+)?(?:feature|component|module|service)\b/i,
+          /\bcreate\s+(?:the\s+)?(?:feature|component|module)\b/i,
+          /\bwrite\s+(?:the\s+)?(?:code|function|class|method)\b/i
+        ]
+      },
+      {
+        shape: "review",
+        patterns: [/\breview\b/i, /\baudit\b/i, /\bpr\b/i, /\bcode\s+review\b/i]
+      },
+      {
+        shape: "security_audit",
+        patterns: [
+          /\bsecurity\b/i,
+          /\bvulnerab/i,
+          /\bcve\b/i,
+          /\bowasp\b/i,
+          /\bxss\b/i,
+          /\binjection\b/i,
+          /\bauth(?:entication|orization)?\b/i,
+          /\bexploit\b/i
+        ]
+      },
+      {
+        shape: "design",
+        patterns: [
+          /\bdesign\b/i,
+          /\barchitect(?:ure|ing)?\b/i,
+          /\bui\b/i,
+          /\bux\b/i,
+          /\bwireframe\b/i,
+          /\bmockup\b/i,
+          /\bprototype\b/i
+        ]
+      },
+      {
+        shape: "documentation",
+        patterns: [
+          /\bdocument(?:ation|ing)?\b/i,
+          /\breadme\b/i,
+          /\bchangelog\b/i,
+          /\bcomments?\b/i,
+          /\bjsdoc\b/i
+        ]
+      },
+      {
+        shape: "testing",
+        patterns: [
+          /\btest(?:ing|s)?\b/i,
+          /\bcoverage\b/i,
+          /\bassert(?:ion)?\b/i,
+          /\be2e\b/i,
+          /\bintegration\s+test\b/i,
+          /\bunit\s+test\b/i
+        ]
+      },
+      {
+        shape: "large_scan",
+        patterns: [
+          /\bscan\b/i,
+          /\banalyze\s+all\b/i,
+          /\baudit\s+(?:the\s+)?(?:entire|full|whole)\b/i,
+          /\bcross.?module\b/i,
+          /\bcodebase.?wide\b/i,
+          /\brepo.?wide\b/i
+        ]
+      }
+    ];
   }
 });
 
@@ -33012,7 +33297,7 @@ function renderCliWorkerOutputContract(role, output_file) {
     "{",
     `  "role": "${role}",`,
     '  "task_id": "<task id from the assignment above>",',
-    '  "verdict": "approve" | "revise" | "reject",',
+    '  "verdict": "approve" | "concern" | "revise" | "reject",',
     '  "summary": "one- or two-sentence overall assessment",',
     '  "findings": [',
     "    {",
@@ -33027,10 +33312,11 @@ function renderCliWorkerOutputContract(role, output_file) {
     "",
     "Rules:",
     "- Write valid JSON only (no surrounding prose, no markdown fences in the file).",
-    "- `verdict` MUST be one of `approve`, `revise`, or `reject`.",
+    "- `verdict` MUST be one of `approve`, `concern`, `revise`, or `reject`.",
+    "- Use `approve` when you have no concerns.",
+    "- Use `concern` when you have advisory reservations but no blocking issues (the task completes with a note).",
+    "- Use `revise` or `reject` for blocking issues that must be addressed before the task can be considered done.",
     "- Each finding MUST carry a `severity` from the enum above.",
-    "- Use `approve` only when you have no blocking concerns.",
-    '- If you cannot produce a verdict, write `{"verdict":"revise", ...}` with an explanatory finding rather than exiting silently.',
     "- The team leader reads this file to mark the task complete; omitting it leaves the task stuck in_progress pending human review.",
     ""
   ].join("\n");
@@ -33106,9 +33392,10 @@ var init_cli_worker_contract = __esm({
       "critic",
       "code-reviewer",
       "security-reviewer",
-      "test-engineer"
+      "test-engineer",
+      "verifier"
     ]);
-    VALID_VERDICTS = /* @__PURE__ */ new Set(["approve", "revise", "reject"]);
+    VALID_VERDICTS = /* @__PURE__ */ new Set(["approve", "concern", "revise", "reject"]);
     VALID_SEVERITIES = /* @__PURE__ */ new Set(["critical", "major", "minor", "nit"]);
   }
 });
@@ -34128,6 +34415,145 @@ var init_merge_orchestrator = __esm({
   }
 });
 
+// src/team/dual-star-evaluator.ts
+var dual_star_evaluator_exports = {};
+__export(dual_star_evaluator_exports, {
+  estimateTaskComplexity: () => estimateTaskComplexity,
+  evaluateDualStarTriggers: () => evaluateDualStarTriggers
+});
+function evaluateDualStarTriggers(triggers, metrics) {
+  if (!triggers || triggers.length === 0) {
+    return { shouldUpgrade: false, reason: "no triggers configured" };
+  }
+  for (const trigger of triggers) {
+    const match = evaluateTrigger(trigger, metrics);
+    if (match) return { shouldUpgrade: true, reason: `trigger:${trigger.type}` };
+  }
+  return { shouldUpgrade: false, reason: "no triggers matched" };
+}
+function evaluateTrigger(trigger, m) {
+  switch (trigger.type) {
+    case "cross_service_change":
+      return m.crossServiceChange;
+    case "data_migration":
+      return m.dataMigration;
+    case "auth_boundary_redesign":
+      return m.securityDomain;
+    case "distributed_consistency":
+      return m.crossServiceChange;
+    case "doc_exceeds_5000_words":
+      return m.contextExceeds128K;
+    case "security_compliance":
+      return m.securityDomain;
+    case "payment_or_auth_change":
+      return m.paymentOrAuthChange;
+    case "critical_release":
+      return false;
+    // manual trigger only
+    case "high_ambiguity_fix":
+      return m.highAmbiguityFix;
+    case "executor_same_model_family":
+      return m.executorVerifierSameFamily;
+    default:
+      return false;
+  }
+}
+function estimateTaskComplexity(subject, description) {
+  const combined = `${subject} ${description}`.trim();
+  const wordCount = combined.split(/\s+/).length;
+  const estimatedTokens = Math.ceil(wordCount * 1.3);
+  return {
+    estimatedFileCount: countReferences(combined),
+    estimatedLineCount: 0,
+    // unknown pre-dispatch
+    crossServiceChange: /cross.?service|multi.?module|multi.?service|跨服务|跨模块/i.test(combined),
+    securityDomain: /security|auth|安全|认证|权限|payment|支付|secret|密钥/i.test(combined),
+    dataMigration: /migrat|schema.*change|数据迁移|数据库变更/i.test(combined),
+    contextExceeds128K: estimatedTokens > 1e5,
+    paymentOrAuthChange: /payment|支付|auth|认证|login|登录/i.test(combined),
+    highAmbiguityFix: /可能|也许|不确定|might|maybe|possibly|unclear/i.test(combined),
+    executorVerifierSameFamily: false
+    // set by caller with routing context
+  };
+}
+function countReferences(text) {
+  const fileRefs = text.match(/(?:[\w./-]+\.(?:ts|js|py|go|rs|java|rb|php|cs))/g);
+  return fileRefs ? new Set(fileRefs).size : 1;
+}
+var init_dual_star_evaluator = __esm({
+  "src/team/dual-star-evaluator.ts"() {
+    "use strict";
+  }
+});
+
+// src/team/ladder-resolver.ts
+var ladder_resolver_exports = {};
+__export(ladder_resolver_exports, {
+  resolveLadderStep: () => resolveLadderStep
+});
+function resolveLadderStep(ladder, metrics, shape, priorFailureCount) {
+  if (!ladder || ladder.length === 0) {
+    return { selectedStep: 0, model: "", provider: "claude", reason: "empty ladder" };
+  }
+  for (let step = ladder.length - 1; step >= 0; step--) {
+    const rung2 = ladder[step];
+    if (evaluateLadderTriggers(rung2.triggers, metrics, shape, priorFailureCount)) {
+      return {
+        selectedStep: step,
+        model: rung2.model,
+        provider: rung2.provider,
+        thinkingDepth: rung2.thinkingDepth,
+        reason: `ladder step ${step}`
+      };
+    }
+  }
+  const rung = ladder[0];
+  return {
+    selectedStep: 0,
+    model: rung.model,
+    provider: rung.provider,
+    thinkingDepth: rung.thinkingDepth,
+    reason: "ladder step 0 (default)"
+  };
+}
+function evaluateLadderTriggers(triggers, metrics, shape, priorFailureCount) {
+  if (!triggers || triggers.length === 0) return false;
+  return triggers.every((t) => evaluateLadderTrigger(t, metrics, shape, priorFailureCount));
+}
+function evaluateLadderTrigger(trigger, m, shape, priorFailureCount) {
+  switch (trigger.type) {
+    case "file_count_gt":
+      return m.estimatedFileCount > (typeof trigger.value === "number" ? trigger.value : 3);
+    case "line_count_gt":
+      return m.estimatedLineCount > (typeof trigger.value === "number" ? trigger.value : 200);
+    case "module_span_gt":
+      return m.crossServiceChange;
+    case "task_type":
+      return shape === trigger.value;
+    case "security_relevant":
+      return m.securityDomain;
+    case "is_bug_fix":
+      return shape === "bug_fix";
+    case "is_regression_fix":
+      return shape === "bug_fix" && m.highAmbiguityFix;
+    case "flaky_test_diagnosis":
+      return shape === "testing" && (priorFailureCount ?? 0) > 0;
+    case "history_surgery":
+      return false;
+    // manual trigger
+    case "manual_override":
+      return false;
+    // manual trigger
+    default:
+      return false;
+  }
+}
+var init_ladder_resolver = __esm({
+  "src/team/ladder-resolver.ts"() {
+    "use strict";
+  }
+});
+
 // src/team/report-persistence.ts
 var report_persistence_exports = {};
 __export(report_persistence_exports, {
@@ -34268,6 +34694,7 @@ __export(runtime_v2_exports, {
   resumeTeamV2: () => resumeTeamV2,
   shutdownTeamV2: () => shutdownTeamV2,
   startTeamV2: () => startTeamV2,
+  synthesizeDualVerdicts: () => synthesizeDualVerdicts,
   writeWatchdogFailedMarker: () => writeWatchdogFailedMarker
 });
 function registerTeamOrchestrator(teamName, handle) {
@@ -34434,83 +34861,13 @@ function buildV2TaskInstruction(teamName, workerName2, task, taskId, cliOutputCo
 }
 function generateRolePreface(agentType, role) {
   const normalizedRole = (role || "").toLowerCase();
-  if (normalizedRole === "code-reviewer" || normalizedRole === "codex-code-reviewer") {
-    return `<!-- omc-role-preface: code-reviewer -->
-
-## \u89D2\u8272\u5B9A\u4F4D
-
-\u4F60\u662F **\u72EC\u7ACB\u4EE3\u7801\u5BA1\u67E5 worker**\u3002\u4F60\u7684\u804C\u8D23\u662F\u53D1\u73B0\u4EE3\u7801\u7F3A\u9677\u3001\u5B89\u5168\u6F0F\u6D1E\u3001\u6027\u80FD\u95EE\u9898\u548C\u903B\u8F91\u9519\u8BEF\u3002
-
-- findings > \u8BC1\u636E > \u9A8C\u8BC1\u65B9\u5F0F > \u98CE\u9669\u5217\u8868
-- \u4E0D\u8981\u56E0\u4E3A leader \u5DF2\u6709\u503E\u5411\u5C31\u653E\u5F03\u53CD\u9A73
-- \u8F93\u51FA\u683C\u5F0F\uFF1A\u4E25\u91CD\u5EA6/\u6587\u4EF6/\u884C\u53F7/\u95EE\u9898\u63CF\u8FF0/\u4FEE\u590D\u5EFA\u8BAE
-
----
-
-`;
-  }
-  if (normalizedRole === "security-reviewer") {
-    return `<!-- omc-role-preface: security-reviewer -->
-
-## \u89D2\u8272\u5B9A\u4F4D
-
-\u4F60\u662F **\u5B89\u5168\u5BA1\u67E5 worker**\u3002\u4F60\u7684\u804C\u8D23\u662F\u53D1\u73B0\u5B89\u5168\u6F0F\u6D1E\u3001\u653B\u51FB\u9762\u548C\u5408\u89C4\u95EE\u9898\u3002
-
-- OWASP Top 10 / CWE \u8986\u76D6
-- \u6BCF\u4E2A finding \u9700\u6807\u6CE8\u5229\u7528\u96BE\u5EA6\u548C\u5F71\u54CD\u8303\u56F4
-- \u8F93\u51FA\u683C\u5F0F\uFF1A\u4E25\u91CD\u5EA6/CVE\u6620\u5C04/\u6587\u4EF6/\u884C\u53F7/\u4FEE\u590D\u65B9\u6848
-
----
-
-`;
-  }
-  if (normalizedRole === "critic") {
-    return `<!-- omc-role-preface: critic -->
-
-## \u89D2\u8272\u5B9A\u4F4D
-
-\u4F60\u662F **\u72EC\u7ACB\u6311\u6218\u8005 worker**\u3002\u4F60\u7684\u804C\u8D23\u662F\u8D28\u7591\u73B0\u6709\u65B9\u6848\u3001\u6307\u51FA\u8FB9\u754C\u6761\u4EF6\u3001\u63D0\u51FA\u66FF\u4EE3\u8DEF\u5F84\u3002
-
-- \u5BF9\u6BCF\u4E2A\u7ED3\u8BBA\u63D0\u51FA\u81F3\u5C11\u4E00\u4E2A\u53CD\u4F8B
-- \u4E0D\u8981\u56E0 leader \u5DF2\u6709\u503E\u5411\u5C31\u653E\u5F03\u53CD\u9A73
-- \u8F93\u51FA\u683C\u5F0F\uFF1A\u5047\u8BBE/\u53CD\u4F8B/\u98CE\u9669\u8BC4\u4F30/\u66FF\u4EE3\u65B9\u6848
-
----
-
-`;
-  }
-  const codexPreface = `<!-- omc-role-preface: codex default -->
-
-## \u89D2\u8272\u5B9A\u4F4D
-
-\u4F60\u662F **\u9ED8\u8BA4\u4E3B\u529B worker**\uFF08GPT-5.4/Codex\uFF09\u3002omc team \u672A\u6307\u5B9A\u6A21\u578B\u65F6\u9ED8\u8BA4\u4F7F\u7528\u4F60\u3002\u8986\u76D6\u573A\u666F\uFF1A\u7814\u7A76\u5206\u6790\u3001\u4EE3\u7801\u5BA1\u67E5\u3001\u5B89\u5168\u5BA1\u8BA1\u3001\u67B6\u6784\u8BBE\u8BA1\u3001Shell/CLI \u81EA\u52A8\u5316\u3001\u4EE3\u7801\u64B0\u5199\u3002
-
-- \u5BA1\u67E5/\u5BA1\u8BA1\uFF1Afindings > \u8BC1\u636E > \u9A8C\u8BC1\u65B9\u5F0F > \u98CE\u9669\u5217\u8868
-- \u67B6\u6784/\u8BBE\u8BA1\uFF1A\u6307\u51FA\u53CD\u4F8B\u548C\u8FB9\u754C\u6761\u4EF6\uFF0C\u4E0D\u8981\u56E0 leader \u5DF2\u6709\u503E\u5411\u5C31\u653E\u5F03\u53CD\u9A73
-- \u5B9E\u73B0\u4EFB\u52A1\uFF1A\u5148\u9A8C\u8BC1\u524D\u63D0\u5047\u8BBE\u518D\u52A8\u624B
-- \u4F60\u7684\u4EF7\u503C\u5728\u4E8E\u72EC\u7ACB\u5224\u65AD\u2014\u2014\u4E0E leader\uFF08DSv4\uFF09\u5F62\u6210\u5F02\u6784\u89C6\u89D2\u4E92\u8865
-
----
-
-`;
-  const claudePreface = `<!-- omc-role-preface: claude specialist -->
-
-## \u89D2\u8272\u5B9A\u4F4D
-
-\u4F60\u662F **\u4E13\u957F\u8865\u5145 worker**\uFF08DSv4/Claude\uFF09\u3002\u4EC5\u5728\u4EE5\u4E0B\u573A\u666F\u4F7F\u7528\uFF1A\u4E2D\u6587\u6587\u6863\u64B0\u5199\u30011M \u957F\u4E0A\u4E0B\u6587\u641C\u7D22/\u9884\u626B\u3001\u4E0E codex \u914D\u5BF9\u7684\u5F02\u6784\u4EA4\u53C9\u9A8C\u8BC1\u3001\u7528\u6237\u660E\u786E\u6307\u5B9A\u3002
-
-- \u4E2D\u6587\u8F93\u51FA\u4F18\u5148
-- \u957F\u4E0A\u4E0B\u6587\u4EFB\u52A1\u5229\u7528 1M \u7A97\u53E3\u4F18\u52BF
-- \u4EA4\u53C9\u9A8C\u8BC1\u65F6\u4ECE\u4E0D\u540C\u89C6\u89D2\u5BA1\u89C6 codex \u7684\u7ED3\u8BBA
-
----
-
-`;
+  const r = ROLE_PREFACES[normalizedRole];
+  if (r) return r;
   switch (agentType) {
     case "codex":
-      return codexPreface;
+      return ROLE_PREFACES["codex_default"];
     case "claude":
-      return claudePreface;
+      return ROLE_PREFACES["claude_default"];
     default:
       return "";
   }
@@ -34560,6 +34917,122 @@ async function waitForWorkerStartupEvidence(teamName, workerName2, taskId, cwd2,
     }
   }
   return false;
+}
+async function spawnDualWorkerPair(opts) {
+  const baseId = Number(opts.taskId) * 1e3;
+  const childTaskId1 = String(baseId + 1);
+  const childTaskId2 = String(baseId + 2);
+  const secondaryWorkerName = `${opts.primaryWorkerName}-secondary`;
+  const secondaryWorkerIndex = opts.primaryWorkerIndex + 1;
+  const parentTaskPath = absPath(opts.cwd, TeamPaths.taskFile(opts.teamName, opts.taskId));
+  await (0, import_promises18.mkdir)((0, import_path92.dirname)(parentTaskPath), { recursive: true });
+  await (0, import_promises18.writeFile)(parentTaskPath, JSON.stringify({
+    id: opts.taskId,
+    subject: opts.task.subject,
+    description: opts.task.description,
+    status: "dual_pending",
+    role: opts.role,
+    created_at: (/* @__PURE__ */ new Date()).toISOString(),
+    metadata: { dual: { childIds: [childTaskId1, childTaskId2], synthesis: "pending" } }
+  }, null, 2));
+  for (const [childId, label] of [[childTaskId1, "primary"], [childTaskId2, "secondary"]]) {
+    const childPath = absPath(opts.cwd, TeamPaths.taskFile(opts.teamName, childId));
+    await (0, import_promises18.writeFile)(childPath, JSON.stringify({
+      id: childId,
+      subject: `[${label}] ${opts.task.subject}`,
+      description: opts.task.description,
+      status: "pending",
+      role: opts.role,
+      parentTaskId: opts.taskId,
+      created_at: (/* @__PURE__ */ new Date()).toISOString()
+    }, null, 2));
+  }
+  const primaryResult = await spawnV2Worker({
+    sessionName: opts.sessionName,
+    leaderPaneId: opts.leaderPaneId,
+    existingWorkerPaneIds: opts.existingWorkerPaneIds,
+    teamName: opts.teamName,
+    workerName: opts.primaryWorkerName,
+    workerIndex: opts.primaryWorkerIndex,
+    agentType: opts.primaryAssignment.agentType,
+    task: { ...opts.task, subject: `[primary] ${opts.task.subject}` },
+    taskId: childTaskId1,
+    cwd: opts.cwd,
+    workerCwd: opts.workerCwd,
+    worktreePath: opts.worktreePath,
+    resolvedBinaryPaths: opts.resolvedBinaryPaths,
+    model: opts.primaryAssignment.model || void 0,
+    role: opts.primaryAssignment.role ?? void 0
+  });
+  try {
+    const config2 = await readTeamConfig(opts.teamName, opts.cwd);
+    if (config2 && primaryResult.paneId) {
+      const secWorkerEntry = {
+        name: secondaryWorkerName,
+        index: secondaryWorkerIndex,
+        role: opts.role,
+        worker_cli: opts.secondaryAssignment.provider,
+        assigned_tasks: [childTaskId2]
+      };
+      const existing = config2.workers.filter((w) => w.name !== secondaryWorkerName);
+      config2.workers = [...existing, secWorkerEntry];
+      await saveTeamConfig(config2, opts.cwd);
+    }
+  } catch {
+  }
+  let secondaryResult = null;
+  if (opts.secondaryAssignment) {
+    const secAgentType = opts.secondaryAssignment.provider;
+    secondaryResult = await spawnV2Worker({
+      sessionName: opts.sessionName,
+      leaderPaneId: opts.leaderPaneId,
+      existingWorkerPaneIds: [...opts.existingWorkerPaneIds, ...primaryResult.paneId ? [primaryResult.paneId] : []],
+      teamName: opts.teamName,
+      workerName: secondaryWorkerName,
+      workerIndex: secondaryWorkerIndex,
+      agentType: secAgentType,
+      task: { ...opts.task, subject: `[secondary] ${opts.task.subject}` },
+      taskId: childTaskId2,
+      cwd: opts.cwd,
+      workerCwd: opts.workerCwd,
+      worktreePath: opts.worktreePath,
+      resolvedBinaryPaths: opts.resolvedBinaryPaths,
+      model: opts.secondaryAssignment.model || void 0,
+      role: opts.role
+    });
+  }
+  if (primaryResult.paneId || secondaryResult?.paneId) {
+    const deps = {
+      teamName: opts.teamName,
+      cwd: opts.cwd,
+      readTask: async (t, id, c) => {
+        const { readFile: readFile19 } = await import("fs/promises");
+        try {
+          const raw = await readFile19(absPath(c, TeamPaths.taskFile(t, id)), "utf-8");
+          return JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      },
+      withTaskClaimLock: async (_t, _id, _c, fn) => {
+        try {
+          return { ok: true, value: await fn() };
+        } catch {
+          return { ok: false };
+        }
+      },
+      normalizeTask: (t) => ({ ...t, version: t.version ?? 0 }),
+      canTransitionTaskStatus: canTransitionTeamTaskStatus,
+      taskFilePath: (t, id, c) => absPath(c, TeamPaths.taskFile(t, id)),
+      writeAtomic: async (p, d) => {
+        const { writeFile: writeFile10 } = await import("fs/promises");
+        await writeFile10(p, d, "utf-8");
+      }
+    };
+    await transitionParentTask(opts.taskId, "dual_pending", "dual_in_progress", void 0, deps).catch(() => {
+    });
+  }
+  return { primary: primaryResult, secondary: secondaryResult };
 }
 async function spawnV2Worker(opts) {
   const splitTarget = opts.existingWorkerPaneIds.length === 0 ? opts.leaderPaneId : opts.existingWorkerPaneIds[opts.existingWorkerPaneIds.length - 1];
@@ -34667,14 +35140,11 @@ async function spawnV2Worker(opts) {
   };
   await spawnWorkerInPane(opts.sessionName, paneId, paneConfig);
   await applyMainVerticalLayout(opts.sessionName);
+  let paneReadyFailed = false;
   if (!usePromptMode) {
     const paneReady = await waitForPaneReady(paneId);
     if (!paneReady) {
-      return {
-        paneId,
-        startupAssigned: false,
-        startupFailureReason: "worker_pane_not_ready"
-      };
+      paneReadyFailed = true;
     }
   }
   const dispatchOutcome = await queueInboxInstruction({
@@ -34759,7 +35229,8 @@ async function spawnV2Worker(opts) {
   }
   return {
     paneId,
-    startupAssigned: true,
+    startupAssigned: !paneReadyFailed,
+    startupFailureReason: paneReadyFailed ? "worker_pane_not_ready" : void 0,
     ...outputFile ? { outputFile } : {}
   };
 }
@@ -35102,6 +35573,119 @@ async function startTeamV2(config2) {
         resolvedBinaryPaths,
         fallbackAgent
       );
+      const routingEntry = assignment.role ? resolvedRouting[assignment.role] : void 0;
+      const mode = routingEntry?.mode ?? "SINGLE";
+      if (routingEntry && mode !== "SINGLE") {
+        const re = routingEntry;
+        if (mode === "DUAL" && re.secondary) {
+          const dualResults = await spawnDualWorkerPair({
+            sessionName: sessionName2,
+            leaderPaneId,
+            existingWorkerPaneIds: workerPaneIds,
+            teamName: sanitized,
+            primaryWorkerName: wName,
+            primaryWorkerIndex: workerIndex,
+            primaryAssignment: assignment,
+            secondaryAssignment: re.secondary,
+            taskIndex: decision.taskIndex,
+            task,
+            taskId,
+            cwd: leaderCwd,
+            workerCwd: workersInfo[workerIndex]?.working_dir ?? leaderCwd,
+            worktreePath: workersInfo[workerIndex]?.worktree_path,
+            resolvedBinaryPaths,
+            role: assignment.role ?? "executor",
+            synthesis: re.synthesis ?? { maxReviseCycles: 2 }
+          });
+          const childId1 = String(Number(taskId) * 1e3 + 1);
+          if (dualResults.primary.paneId) {
+            workerPaneIds.push(dualResults.primary.paneId);
+            const wi = workersInfo[workerIndex];
+            if (wi) {
+              wi.pane_id = dualResults.primary.paneId;
+              wi.worker_cli = assignment.agentType;
+              wi.assigned_tasks = [childId1];
+              wi.dualPairWorker = `${wName}-secondary`;
+              wi.dualIndex = 0;
+              wi.dualTaskId = taskId;
+            }
+          }
+          if (dualResults.secondary?.paneId) {
+            workerPaneIds.push(dualResults.secondary.paneId);
+            const childId2 = String(Number(taskId) * 1e3 + 2);
+            const secWorkerIndex = workerIndex + 1;
+            const secAgentType = re.secondary?.provider ?? "claude";
+            while (workersInfo.length <= secWorkerIndex) {
+              workersInfo.push({ name: `worker-${workersInfo.length + 1}`, index: workersInfo.length, role: assignment.role ?? "executor", assigned_tasks: [] });
+            }
+            workersInfo[secWorkerIndex] = {
+              ...workersInfo[secWorkerIndex],
+              name: `${wName}-secondary`,
+              index: secWorkerIndex,
+              role: assignment.role ?? "executor",
+              worker_cli: secAgentType,
+              assigned_tasks: [childId2],
+              pane_id: dualResults.secondary.paneId,
+              dualPairWorker: wName,
+              dualIndex: 1,
+              dualTaskId: taskId
+            };
+          }
+          continue;
+        }
+        if (mode === "DUAL_STAR" && re.secondary) {
+          const { estimateTaskComplexity: estimateTaskComplexity2, evaluateDualStarTriggers: evaluateDualStarTriggers2 } = await Promise.resolve().then(() => (init_dual_star_evaluator(), dual_star_evaluator_exports));
+          const metrics = estimateTaskComplexity2(task.subject, task.description);
+          if (assignment.role === "verifier") {
+            const execRouting = resolvedRouting["executor"];
+            if (execRouting) {
+              metrics.executorVerifierSameFamily = assignment.agentType === execRouting.primary.provider;
+            }
+          }
+          const triggerResult = evaluateDualStarTriggers2(re.dualStarTriggers ?? [], metrics);
+          if (triggerResult.shouldUpgrade) {
+            const dualResults = await spawnDualWorkerPair({
+              sessionName: sessionName2,
+              leaderPaneId,
+              existingWorkerPaneIds: workerPaneIds,
+              teamName: sanitized,
+              primaryWorkerName: wName,
+              primaryWorkerIndex: workerIndex,
+              primaryAssignment: assignment,
+              secondaryAssignment: re.secondary,
+              taskIndex: decision.taskIndex,
+              task,
+              taskId,
+              cwd: leaderCwd,
+              workerCwd: workersInfo[workerIndex]?.working_dir ?? leaderCwd,
+              worktreePath: workersInfo[workerIndex]?.worktree_path,
+              resolvedBinaryPaths,
+              role: assignment.role ?? "executor",
+              synthesis: re.synthesis ?? { maxReviseCycles: 2 }
+            });
+            if (dualResults.primary.paneId) {
+              workerPaneIds.push(dualResults.primary.paneId);
+              const wi = workersInfo[workerIndex];
+              if (wi) {
+                wi.pane_id = dualResults.primary.paneId;
+                wi.worker_cli = assignment.agentType;
+                wi.assigned_tasks = [String(Number(taskId) * 1e3 + 1)];
+              }
+            }
+            continue;
+          }
+        }
+        if (mode === "SINGLE_PLUS" && re.ladder && re.ladder.length > 0) {
+          const { classifyTaskShape: classifyTaskShape2 } = await Promise.resolve().then(() => (init_role_router(), role_router_exports));
+          const { estimateTaskComplexity: estimateTaskComplexity2 } = await Promise.resolve().then(() => (init_dual_star_evaluator(), dual_star_evaluator_exports));
+          const { resolveLadderStep: resolveLadderStep2 } = await Promise.resolve().then(() => (init_ladder_resolver(), ladder_resolver_exports));
+          const shape = classifyTaskShape2(`${task.subject} ${task.description}`);
+          const metrics = estimateTaskComplexity2(task.subject, task.description);
+          const ladderResult = resolveLadderStep2(re.ladder, metrics, shape, 0);
+          assignment.model = ladderResult.model;
+          assignment.agentType = ladderResult.provider;
+        }
+      }
       const workerLaunch = await spawnV2Worker({
         sessionName: sessionName2,
         leaderPaneId,
@@ -35291,6 +35875,17 @@ async function requeueDeadWorkerTasks(teamName, deadWorkerNames, cwd2) {
   }
   return requeued;
 }
+function synthesizeDualVerdicts(primaryVerdict, secondaryVerdict, reviseCount, maxReviseCycles) {
+  if (primaryVerdict === "approve" && secondaryVerdict === "approve") return "completed";
+  if (primaryVerdict === "approve" && secondaryVerdict === "concern") return "completed";
+  if (primaryVerdict === "concern" && secondaryVerdict === "approve") return "completed";
+  if (primaryVerdict === "concern" && secondaryVerdict === "concern") return "needs_revise";
+  if (primaryVerdict === "block" || secondaryVerdict === "block") {
+    if (reviseCount >= maxReviseCycles) return "blocked_for_human";
+    return "needs_revise";
+  }
+  return "blocked_for_human";
+}
 async function processCliWorkerVerdicts(teamName, cwd2) {
   const sanitized = sanitizeTeamName(teamName);
   const config2 = await readTeamConfig(sanitized, cwd2);
@@ -35358,7 +35953,7 @@ async function processCliWorkerVerdicts(teamName, cwd2) {
       });
       continue;
     }
-    const terminalStatus = payload.verdict === "approve" ? "completed" : "failed";
+    const terminalStatus = payload.verdict === "approve" || payload.verdict === "concern" ? "completed" : "failed";
     let transitionOk = false;
     try {
       withFileLockSync2(targetTaskPath + ".lock", () => {
@@ -35424,6 +36019,102 @@ async function processCliWorkerVerdicts(teamName, cwd2) {
     });
   }
   return results;
+}
+async function advanceDualParentSynthesis(teamName, cwd2, allTasks) {
+  const deps = {
+    teamName,
+    cwd: cwd2,
+    readTask: async (t, id, c) => {
+      const { readFile: readFile19 } = await import("fs/promises");
+      try {
+        const raw = await readFile19(absPath(c, TeamPaths.taskFile(t, id)), "utf-8");
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    },
+    withTaskClaimLock: async (_t, _id, _c, fn) => {
+      try {
+        return { ok: true, value: await fn() };
+      } catch {
+        return { ok: false };
+      }
+    },
+    normalizeTask: (t) => ({ ...t, version: t.version ?? 0 }),
+    canTransitionTaskStatus: canTransitionTeamTaskStatus,
+    taskFilePath: (t, id, c) => absPath(c, TeamPaths.taskFile(t, id)),
+    writeAtomic: async (p, d) => {
+      const { writeFile: writeFile10 } = await import("fs/promises");
+      await writeFile10(p, d, "utf-8");
+    }
+  };
+  const inProgressParents = allTasks.filter((t) => t.status === "dual_in_progress");
+  for (const pt of inProgressParents) {
+    const dualMeta = pt.metadata?.dual;
+    const childIds = dualMeta?.childIds ?? [];
+    if (childIds.length < 2) continue;
+    const childTasks = childIds.map((id) => allTasks.find((t) => t.id === id)).filter(Boolean);
+    if (childTasks.length < 2) continue;
+    const allTerminal = childTasks.every((ct) => ct && (ct.status === "completed" || ct.status === "failed"));
+    if (!allTerminal) continue;
+    await transitionParentTask(pt.id, "dual_in_progress", "dual_synthesis", void 0, deps).catch(() => {
+    });
+  }
+  const synthesisParents = allTasks.filter((t) => t.status === "dual_synthesis");
+  for (const pt of synthesisParents) {
+    const dualMeta = pt.metadata?.dual;
+    const childIds = dualMeta?.childIds ?? [];
+    const reviseCount = dualMeta?.reviseCount ?? 0;
+    if (childIds.length < 2) continue;
+    const childTasks = childIds.map((id) => allTasks.find((t) => t.id === id)).filter(Boolean);
+    if (childTasks.length < 2) continue;
+    const mapVerdict = (ct) => {
+      if (!ct) return "block";
+      const verdictMeta = ct.metadata;
+      const v = verdictMeta?.verdict;
+      if (v === "approve") return "approve";
+      if (v === "concern") return "concern";
+      return "block";
+    };
+    const primaryVerdict = mapVerdict(childTasks[0]);
+    const secondaryVerdict = mapVerdict(childTasks[1]);
+    const maxRevise = dualMeta?.maxReviseCycles ?? 2;
+    const result = synthesizeDualVerdicts(primaryVerdict, secondaryVerdict, reviseCount, maxRevise);
+    if (result === "completed") {
+      await transitionParentTask(pt.id, "dual_synthesis", "completed", {
+        completed_at: (/* @__PURE__ */ new Date()).toISOString()
+      }, deps).catch(() => {
+      });
+    } else if (result === "blocked_for_human") {
+      await transitionParentTask(pt.id, "dual_synthesis", "failed", {
+        metadata: { dual: { childIds, reviseCount, synthesis: "blocked_for_human" } }
+      }, deps).catch(() => {
+      });
+    } else if (result === "needs_revise") {
+      const newBase = Number(pt.id) * 1e4 + (reviseCount + 1) * 2;
+      const newChildId1 = String(newBase);
+      const newChildId2 = String(newBase + 1);
+      try {
+        for (const [cid, label] of [[newChildId1, "primary"], [newChildId2, "secondary"]]) {
+          const childPath = absPath(cwd2, TeamPaths.taskFile(teamName, cid));
+          const { writeFile: writeFile10 } = await import("fs/promises");
+          await writeFile10(childPath, JSON.stringify({
+            id: cid,
+            subject: `[${label}] (revise ${reviseCount + 1}) task-${pt.id}`,
+            description: `Revision round ${reviseCount + 1} for parent task ${pt.id}`,
+            status: "pending",
+            parentTaskId: pt.id,
+            created_at: (/* @__PURE__ */ new Date()).toISOString()
+          }, null, 2));
+        }
+        await transitionParentTask(pt.id, "dual_synthesis", "dual_in_progress", {
+          metadata: { dual: { childIds: [newChildId1, newChildId2], reviseCount: reviseCount + 1, synthesis: "pending" } }
+        }, deps).catch(() => {
+        });
+      } catch {
+      }
+    }
+  }
 }
 async function monitorTeamV2(teamName, cwd2) {
   const monitorStartMs = import_perf_hooks2.performance.now();
@@ -35540,9 +36231,14 @@ async function monitorTeamV2(teamName, cwd2) {
     blocked: allTasks.filter((t) => t.status === "blocked").length,
     in_progress: allTasks.filter((t) => t.status === "in_progress").length,
     completed: allTasks.filter((t) => t.status === "completed").length,
-    failed: allTasks.filter((t) => t.status === "failed").length
+    failed: allTasks.filter((t) => t.status === "failed").length,
+    dual: allTasks.filter(
+      (t) => t.status === "dual_pending" || t.status === "dual_in_progress" || t.status === "dual_synthesis"
+    ).length
   };
-  const allTasksTerminal2 = taskCounts.pending === 0 && taskCounts.blocked === 0 && taskCounts.in_progress === 0;
+  const allTasksTerminal2 = taskCounts.pending === 0 && taskCounts.blocked === 0 && taskCounts.in_progress === 0 && taskCounts.dual === 0;
+  advanceDualParentSynthesis(sanitized, cwd2, allTasks).catch(() => {
+  });
   for (const task of allTasks) {
     const missingDependencyIds = getMissingDependencyIds(task, taskById);
     if (missingDependencyIds.length === 0) {
@@ -35661,7 +36357,9 @@ async function shutdownTeamV2(teamName, cwd2, options = {}) {
       total: allTasks.length,
       pending: allTasks.filter((t) => t.status === "pending").length,
       blocked: allTasks.filter((t) => t.status === "blocked").length,
-      in_progress: allTasks.filter((t) => t.status === "in_progress").length,
+      in_progress: allTasks.filter(
+        (t) => t.status === "in_progress" || t.status === "dual_pending" || t.status === "dual_in_progress" || t.status === "dual_synthesis"
+      ).length,
       completed: allTasks.filter((t) => t.status === "completed").length,
       failed: allTasks.filter((t) => t.status === "failed").length,
       allowed: false
@@ -35861,7 +36559,7 @@ async function findActiveTeamsV2(cwd2) {
   }
   return active;
 }
-var import_path92, import_fs74, import_promises18, import_perf_hooks2, import_node_child_process9, orchestratorByTeam, cadenceByTeam, MONITOR_SIGNAL_STALE_MS, CIRCUIT_BREAKER_THRESHOLD, CircuitBreakerV2;
+var import_path92, import_fs74, import_promises18, import_perf_hooks2, import_node_child_process9, orchestratorByTeam, cadenceByTeam, MONITOR_SIGNAL_STALE_MS, ROLE_PREFACES, CIRCUIT_BREAKER_THRESHOLD, CircuitBreakerV2;
 var init_runtime_v2 = __esm({
   "src/team/runtime-v2.ts"() {
     "use strict";
@@ -35875,6 +36573,8 @@ var init_runtime_v2 = __esm({
     init_allocation_policy();
     init_monitor();
     init_team_ops();
+    init_tasks();
+    init_contracts();
     init_codex_home();
     init_events();
     init_governance();
@@ -35902,6 +36602,162 @@ var init_runtime_v2 = __esm({
     orchestratorByTeam = /* @__PURE__ */ new Map();
     cadenceByTeam = /* @__PURE__ */ new Map();
     MONITOR_SIGNAL_STALE_MS = 3e4;
+    ROLE_PREFACES = {
+      "code-reviewer": `<!-- omc-role-preface: code-reviewer -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u72EC\u7ACB\u4EE3\u7801\u5BA1\u67E5 worker**\u3002\u4F7F\u7528 DSv4-Pro \u505A PR \u7EA7\u5168\u91CF\u8986\u76D6\u626B\u63CF\uFF0CGPT-5.4 \u805A\u7126\u903B\u8F91\u7F3A\u9677/\u8FB9\u754C\u6761\u4EF6/\u5B89\u5168\u9690\u60A3\u3002
+- findings > \u8BC1\u636E > \u9A8C\u8BC1\u65B9\u5F0F > \u98CE\u9669\u5217\u8868
+- \u7981\u6B62\u4F7F\u7528 Write/Edit \u5DE5\u5177
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u4E25\u91CD\u5EA6/\u6587\u4EF6/\u884C\u53F7/\u95EE\u9898\u63CF\u8FF0/\u4FEE\u590D\u5EFA\u8BAE
+---
+`,
+      "security-reviewer": `<!-- omc-role-preface: security-reviewer -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u5B89\u5168\u5BA1\u67E5 worker**\u3002\u4F7F\u7528 GPT-5.4 \u505A\u6DF1\u5EA6\u5B89\u5168\u5BA1\u8BA1\uFF0CDSv4-Pro \u505A\u5168\u91CF\u4F9D\u8D56\u5BA1\u8BA1\u3002
+- OWASP Top 10 / CWE \u8986\u76D6
+- \u6BCF\u4E2A finding \u9700\u6807\u6CE8\u5229\u7528\u96BE\u5EA6\u548C\u5F71\u54CD\u8303\u56F4
+- \u7981\u6B62\u4F7F\u7528 Write/Edit \u5DE5\u5177
+---
+`,
+      critic: `<!-- omc-role-preface: critic -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u72EC\u7ACB\u6311\u6218\u8005 worker**\u3002\u4F7F\u7528 GPT-5.4 xhigh\u3002\u8D28\u7591\u73B0\u6709\u65B9\u6848\u3001\u6307\u51FA\u8FB9\u754C\u6761\u4EF6\u3001\u63D0\u51FA\u66FF\u4EE3\u8DEF\u5F84\u3002
+- \u5BF9\u6BCF\u4E2A\u7ED3\u8BBA\u63D0\u51FA\u81F3\u5C11\u4E00\u4E2A\u53CD\u4F8B
+- \u7981\u6B62\u4F7F\u7528 Write/Edit \u5DE5\u5177
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u5047\u8BBE/\u53CD\u4F8B/\u98CE\u9669\u8BC4\u4F30/\u66FF\u4EE3\u65B9\u6848
+---
+`,
+      architect: `<!-- omc-role-preface: architect -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u67B6\u6784 worker**\u3002\u4F7F\u7528 GPT-5.4 high\u3002\u7CFB\u7EDF\u8FB9\u754C\u3001\u63A5\u53E3\u8BBE\u8BA1\u3001\u6280\u672F\u9009\u578B\u6743\u8861\u5206\u6790\u3002
+- \u8DE8\u670D\u52A1/\u6570\u636E\u8FC1\u79FB\u573A\u666F\u89E6\u53D1 DSv4-Pro \u5168\u91CF\u626B\u63CF\u8F85\u52A9
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u8BBE\u8BA1\u65B9\u6848/\u6743\u8861\u5206\u6790/\u98CE\u9669\u8BC4\u4F30/\u5B9E\u65BD\u8DEF\u5F84
+---
+`,
+      analyst: `<!-- omc-role-preface: analyst -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u5206\u6790 worker**\u3002\u4F7F\u7528 GPT-5.4 high\u3002\u9700\u6C42\u5206\u6790\u3001\u7CFB\u7EDF\u5206\u6790\u3001\u5B8C\u6574\u6027\u68C0\u67E5\u3002
+- \u8BC6\u522B\u9690\u85CF\u7EA6\u675F\u548C\u9700\u6C42\u51B2\u7A81
+- \u5B89\u5168\u5408\u89C4\u573A\u666F\u89E6\u53D1 DSv4-Pro \u8F85\u52A9
+---
+`,
+      debugger: `<!-- omc-role-preface: debugger -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u8C03\u8BD5 worker**\u3002\u4F7F\u7528 GPT-5.4 high\u3002\u6839\u56E0\u5206\u6790\u3001\u7ADE\u6001\u6761\u4EF6\u68C0\u6D4B\u3001\u5185\u5B58\u6CC4\u6F0F\u8BCA\u65AD\u3002
+- \u8FDE\u7EED 3 \u6B21\u5047\u8BBE\u5931\u8D25\u89E6\u53D1 DSv4-Pro \u8F85\u52A9
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u6839\u56E0/\u8BC1\u636E/\u4FEE\u590D\u65B9\u6848/\u9A8C\u8BC1\u6B65\u9AA4
+---
+`,
+      verifier: `<!-- omc-role-preface: verifier -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u9A8C\u8BC1 worker**\u3002\u4F7F\u7528 GPT-5.4 high\u3002\u9A8C\u8BC1\u5B8C\u6210\u8BC1\u636E\u3001\u6D4B\u8BD5\u5145\u5206\u6027\u3001\u5B89\u5168\u5408\u89C4\u3002
+- executor \u540C\u6A21\u578B\u65CF\u65F6\u89E6\u53D1\u5F02\u6784\u9A8C\u8BC1
+- \u8F93\u51FA\u683C\u5F0F\uFF1APASS/FAIL/\u9A8C\u8BC1\u8BC1\u636E/\u56DE\u5F52\u98CE\u9669
+---
+`,
+      executor: `<!-- omc-role-preface: executor -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u6267\u884C worker**\u3002\u9ED8\u8BA4 DSv4-Flash \u5FEB\u901F\u6267\u884C\u3002>3 \u6587\u4EF6/>200 \u884C\u5347\u7EA7 DSv4-Pro\u3002\u5B89\u5168/\u652F\u4ED8/\u8BA4\u8BC1\u903B\u8F91\u5347\u7EA7 GPT-5.4\u3002
+- \u6301\u6709\u5168\u5DE5\u5177\u6743\u9650\uFF08\u552F\u4E00\u5199\u4EE3\u7801\u7684 worker\uFF09
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u53D8\u66F4\u6458\u8981/\u9A8C\u8BC1\u8BC1\u636E
+---
+`,
+      "test-engineer": `<!-- omc-role-preface: test-engineer -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u6D4B\u8BD5 worker**\u3002\u9ED8\u8BA4 DSv4-Flash\u3002\u96C6\u6210\u6D4B\u8BD5/E2E/\u5B89\u5168\u6D4B\u8BD5\u5347\u7EA7 DSv4-Pro\u3002\u4E0D\u7A33\u5B9A\u6D4B\u8BD5\u8BCA\u65AD\u5347\u7EA7 GPT-5.4\u3002
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u6D4B\u8BD5\u7528\u4F8B/\u8986\u76D6\u7387/\u4E0D\u7A33\u5B9A\u6D4B\u8BD5\u5206\u6790
+---
+`,
+      "qa-tester": `<!-- omc-role-preface: qa-tester -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **QA \u6D4B\u8BD5 worker**\u3002\u9ED8\u8BA4 DSv4-Flash\u3002\u957F\u4EA4\u4E92 E2E/\u73AF\u5883\u5BC6\u96C6\u578B\u6D4B\u8BD5\u5347\u7EA7 DSv4-Pro\u3002
+- tmux \u4F1A\u8BDD\u7BA1\u7406\u3001\u670D\u52A1\u5C31\u7EEA\u8F6E\u8BE2
+- \u8F93\u51FA\u683C\u5F0F\uFF1APASS/FAIL/\u6355\u83B7\u8F93\u51FA
+---
+`,
+      "git-master": `<!-- omc-role-preface: git-master -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **Git worker**\u3002\u9ED8\u8BA4 DSv4-Flash\u3002\u51B2\u7A81\u5BC6\u96C6 rebase/\u5386\u53F2\u624B\u672F\u5347\u7EA7 DSv4-Pro\u3002
+- \u539F\u5B50\u63D0\u4EA4\u3001commit \u6D88\u606F\u98CE\u683C\u68C0\u6D4B
+- \u7981\u6B62 rebase main/master
+---
+`,
+      planner: `<!-- omc-role-preface: planner -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u89C4\u5212 worker**\u3002\u4F7F\u7528 GPT-5.4 xhigh\u3002\u4EFB\u52A1\u5206\u89E3\u3001\u4F9D\u8D56\u5206\u6790\u3001\u98CE\u9669\u8BC6\u522B\u3002
+- \u63A2\u7D22>50 \u6587\u4EF6\u6216>5 \u670D\u52A1\u8FB9\u754C\u89E6\u53D1 DSv4-Pro \u5168\u91CF\u626B\u63CF\u8F85\u52A9
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u4EFB\u52A1\u6E05\u5355/\u4F9D\u8D56\u56FE/\u98CE\u9669\u77E9\u9635/\u9A8C\u6536\u6807\u51C6
+---
+`,
+      designer: `<!-- omc-role-preface: designer -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u8BBE\u8BA1 worker**\u3002\u4F7F\u7528 GPT-5.4 medium\u3002UI/UX \u8BBE\u8BA1\u3001\u7EC4\u4EF6\u8BBE\u8BA1\u3001\u4EA4\u4E92\u8BBE\u8BA1\u3002
+- \u5339\u914D\u73B0\u6709\u6846\u67B6\u60EF\u7528\u6CD5
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u8BBE\u8BA1\u7A3F/\u7EC4\u4EF6\u89C4\u8303/\u4EA4\u4E92\u6D41\u7A0B
+---
+`,
+      "code-simplifier": `<!-- omc-role-preface: code-simplifier -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u7B80\u5316 worker**\u3002\u4F7F\u7528 DSv4-Pro\u3002\u4EE3\u7801\u7B80\u5316\u3001\u6B7B\u4EE3\u7801\u6E05\u7406\u3001\u53EF\u7EF4\u62A4\u6027\u6539\u8FDB\u3002
+- \u4FDD\u6301\u884C\u4E3A\u7B49\u4EF7\uFF0C\u4E0D\u5F15\u5165\u8FC7\u5EA6\u62BD\u8C61
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u7B80\u5316\u524D\u540E\u5BF9\u6BD4/\u884C\u4E3A\u7B49\u4EF7\u9A8C\u8BC1
+---
+`,
+      "document-specialist": `<!-- omc-role-preface: document-specialist -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u6587\u6863 worker**\u3002\u82F1\u6587\u6587\u6863\u4F7F\u7528 GPT-5.4 medium\uFF0C\u4E2D\u6587\u6587\u6863\u4F7F\u7528 DSv4-Flash\u3002
+- \u7248\u672C\u611F\u77E5\u641C\u7D22\u3001\u6765\u6E90\u5F15\u7528
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u5F15\u7528\u6765\u6E90/\u4EE3\u7801\u793A\u4F8B/\u517C\u5BB9\u6027\u8BF4\u660E
+---
+`,
+      explore: `<!-- omc-role-preface: explore -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u641C\u7D22 worker**\u3002\u4F7F\u7528 DSv4-Flash\u3002\u901F\u5EA6\u9AD8\u4E8E\u4E00\u5207\u3002\u4EE3\u7801\u5E93\u641C\u7D22\u3001\u6587\u4EF6\u67E5\u627E\u3001\u6A21\u5F0F\u5339\u914D\u3002
+- \u7981\u6B62\u4F7F\u7528 Write/Edit \u5DE5\u5177
+- \u6C38\u4E0D\u5347\u7EA7
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u6587\u4EF6\u8DEF\u5F84/\u5339\u914D\u884C/\u641C\u7D22\u6458\u8981
+---
+`,
+      writer: `<!-- omc-role-preface: writer -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u5199\u4F5C worker**\u3002\u9ED8\u8BA4 DSv4-Flash\uFF08\u4E2D\u6587\uFF09\uFF0C\u82F1\u6587\u6587\u6863\u4F7F\u7528 GPT-5.4 low\u3002
+- \u5339\u914D\u73B0\u6709\u6587\u6863\u98CE\u683C
+- \u9A8C\u8BC1\u6240\u6709\u4EE3\u7801\u793A\u4F8B
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u53EF\u626B\u63CF\u7ED3\u6784/\u5DF2\u9A8C\u8BC1\u4EE3\u7801\u5757
+---
+`,
+      tracer: `<!-- omc-role-preface: tracer -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u8FFD\u8E2A worker**\u3002\u4F7F\u7528 GPT-5.4 high\u3002\u56E0\u679C\u8FFD\u8E2A\u3001\u7ADE\u4E89\u5047\u8BBE\u3001\u8BC1\u636E\u5206\u7EA7\u3002
+- \u89C2\u5BDF\u4E0E\u89E3\u91CA\u5206\u79BB
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u5047\u8BBE/\u8BC1\u636E\uFF08\u652F\u6301/\u53CD\u5BF9\uFF09/\u4E0D\u786E\u5B9A\u6027/\u4E0B\u4E00\u63A2\u6D4B\u5EFA\u8BAE
+---
+`,
+      scientist: `<!-- omc-role-preface: scientist -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u79D1\u5B66 worker**\u3002\u4F7F\u7528 GPT-5.4 high\u3002\u6570\u636E\u5206\u6790\u3001\u7EDF\u8BA1\u9A8C\u8BC1\u3001\u5047\u8BBE\u6846\u67B6\u3002
+- \u4F7F\u7528 python_repl \u6267\u884C\u4EE3\u7801\uFF08\u4E0D\u7528 Bash heredocs\uFF09
+- \u8F93\u51FA\u683C\u5F0F\uFF1A\u53D1\u73B0/\u8BC1\u636E/\u5C40\u9650\u6027/\u53EF\u89C6\u5316
+---
+`,
+      codex_default: `<!-- omc-role-preface: codex default -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u9ED8\u8BA4\u4E3B\u529B worker**\uFF08GPT-5.4/Codex\uFF09\u3002\u8986\u76D6\u573A\u666F\uFF1A\u7814\u7A76\u5206\u6790\u3001\u4EE3\u7801\u5BA1\u67E5\u3001\u5B89\u5168\u5BA1\u8BA1\u3001\u67B6\u6784\u8BBE\u8BA1\u3001Shell/CLI \u81EA\u52A8\u5316\u3001\u4EE3\u7801\u64B0\u5199\u3002
+- \u5BA1\u67E5/\u5BA1\u8BA1\uFF1Afindings > \u8BC1\u636E > \u9A8C\u8BC1\u65B9\u5F0F > \u98CE\u9669\u5217\u8868
+- \u67B6\u6784/\u8BBE\u8BA1\uFF1A\u6307\u51FA\u53CD\u4F8B\u548C\u8FB9\u754C\u6761\u4EF6
+- \u5B9E\u73B0\u4EFB\u52A1\uFF1A\u5148\u9A8C\u8BC1\u524D\u63D0\u5047\u8BBE\u518D\u52A8\u624B
+- \u4F60\u7684\u4EF7\u503C\u5728\u4E8E\u72EC\u7ACB\u5224\u65AD\u2014\u2014\u4E0E Leader\uFF08DSv4\uFF09\u5F62\u6210\u5F02\u6784\u89C6\u89D2\u4E92\u8865
+---
+`,
+      claude_default: `<!-- omc-role-preface: claude default -->
+## \u89D2\u8272\u5B9A\u4F4D
+\u4F60\u662F **\u4E13\u957F\u8865\u5145 worker**\uFF08DSv4/Claude\uFF09\u3002\u4E2D\u6587\u6587\u6863\u64B0\u5199\u30011M \u957F\u4E0A\u4E0B\u6587\u641C\u7D22/\u9884\u626B\u3001\u4E0E codex \u914D\u5BF9\u7684\u5F02\u6784\u4EA4\u53C9\u9A8C\u8BC1\u3002
+- \u4E2D\u6587\u8F93\u51FA\u4F18\u5148
+- \u957F\u4E0A\u4E0B\u6587\u4EFB\u52A1\u5229\u7528 1M \u7A97\u53E3\u4F18\u52BF
+- \u4EA4\u53C9\u9A8C\u8BC1\u65F6\u4ECE\u4E0D\u540C\u89C6\u89D2\u5BA1\u89C6 codex \u7684\u7ED3\u8BBA
+---
+`
+    };
     CIRCUIT_BREAKER_THRESHOLD = 3;
     CircuitBreakerV2 = class {
       constructor(teamName, cwd2, threshold = CIRCUIT_BREAKER_THRESHOLD) {
@@ -89266,6 +90122,7 @@ init_tmux_session();
 init_dispatch_queue();
 init_worker_bootstrap();
 init_runtime();
+init_state_paths();
 init_runtime_v2();
 init_git_worktree();
 init_swallowed_error();
@@ -89891,7 +90748,7 @@ async function executeTeamApiOperation(operation, args, fallbackCwd) {
           try {
             const { readFile: readFile19 } = await import("fs/promises");
             const { join: join135 } = await import("path");
-            const taskPath2 = join135(cwd2, ".omc", "state", "team", teamName, "tasks", `task-${taskId}.json`);
+            const taskPath2 = absPath(cwd2, TeamPaths.taskFile(teamName, taskId));
             const raw = await readFile19(taskPath2, "utf-8");
             const task = JSON.parse(raw);
             owner = task?.owner ?? "";

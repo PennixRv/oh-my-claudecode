@@ -11,6 +11,7 @@
  * team to pick up new routing. Enforced by runtime-v2 / scaling consumers.
  */
 import type { CanonicalTeamRole, PluginConfig, RoleAssignment, TeamRoleAssignmentSpec } from '../shared/types.js';
+import type { ResolvedRoleExecutionPlan } from './types.js';
 /**
  * Alias-aware lookup for a `/team` role-routing entry.
  *
@@ -40,8 +41,5 @@ export declare function resolveRoleAssignment(role: CanonicalTeamRole, cfg: Plug
  * (AC-8). Persisted to `TeamConfig.resolved_routing` at team creation by
  * `startTeamV2`; read (never re-resolved) by spawn / scaleUp / restart paths.
  */
-export declare function buildResolvedRoutingSnapshot(cfg: PluginConfig): Record<CanonicalTeamRole, {
-    primary: RoleAssignment;
-    fallback: RoleAssignment;
-}>;
+export declare function buildResolvedRoutingSnapshot(cfg: PluginConfig): Record<CanonicalTeamRole, ResolvedRoleExecutionPlan>;
 //# sourceMappingURL=stage-router.d.ts.map

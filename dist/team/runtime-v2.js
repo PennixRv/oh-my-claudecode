@@ -16,7 +16,7 @@
  * assignTask, resumeTeam as discrete operations driven by the caller.
  */
 import { tmuxExecAsync } from '../cli/tmux-utils.js';
-import { join, resolve } from 'path';
+import { dirname, join, resolve } from 'path';
 import { existsSync } from 'fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'fs/promises';
 import { performance } from 'perf_hooks';
@@ -25,6 +25,8 @@ import { getOmcRoot } from '../lib/worktree-paths.js';
 import { allocateTasksToWorkers } from './allocation-policy.js';
 import { readTeamConfig, readWorkerStatus, readWorkerHeartbeat, readMonitorSnapshot, writeMonitorSnapshot, writeShutdownRequest, readShutdownAck, writeWorkerInbox, listTasksFromFiles, saveTeamConfig, cleanupTeamState, } from './monitor.js';
 import { teamRenewTaskClaim } from './team-ops.js';
+import { transitionParentTask } from './state/tasks.js';
+import { canTransitionTeamTaskStatus } from './contracts.js';
 import { buildCodexWorkerEnv, cleanupTeamCodexMirrors } from './codex-home.js';
 import { appendTeamEvent, emitMonitorDerivedEvents } from './events.js';
 import { DEFAULT_TEAM_GOVERNANCE, DEFAULT_TEAM_TRANSPORT_POLICY, getConfigGovernance, } from './governance.js';
@@ -262,87 +264,173 @@ function buildV2TaskInstruction(teamName, workerName, task, taskId, cliOutputCon
  * Prioritizes canonical role, falls back to provider-based default.
  */
 function generateRolePreface(agentType, role) {
-    // Canonical role overrides provider-based default
     const normalizedRole = (role || '').toLowerCase();
-    if (normalizedRole === 'code-reviewer' || normalizedRole === 'codex-code-reviewer') {
-        return `<!-- omc-role-preface: code-reviewer -->
-
-## 角色定位
-
-你是 **独立代码审查 worker**。你的职责是发现代码缺陷、安全漏洞、性能问题和逻辑错误。
-
-- findings > 证据 > 验证方式 > 风险列表
-- 不要因为 leader 已有倾向就放弃反驳
-- 输出格式：严重度/文件/行号/问题描述/修复建议
-
----
-
-`;
-    }
-    if (normalizedRole === 'security-reviewer') {
-        return `<!-- omc-role-preface: security-reviewer -->
-
-## 角色定位
-
-你是 **安全审查 worker**。你的职责是发现安全漏洞、攻击面和合规问题。
-
-- OWASP Top 10 / CWE 覆盖
-- 每个 finding 需标注利用难度和影响范围
-- 输出格式：严重度/CVE映射/文件/行号/修复方案
-
----
-
-`;
-    }
-    if (normalizedRole === 'critic') {
-        return `<!-- omc-role-preface: critic -->
-
-## 角色定位
-
-你是 **独立挑战者 worker**。你的职责是质疑现有方案、指出边界条件、提出替代路径。
-
-- 对每个结论提出至少一个反例
-- 不要因 leader 已有倾向就放弃反驳
-- 输出格式：假设/反例/风险评估/替代方案
-
----
-
-`;
-    }
-    // Provider-based defaults (no canonical role)
-    const codexPreface = `<!-- omc-role-preface: codex default -->
-
-## 角色定位
-
-你是 **默认主力 worker**（GPT-5.4/Codex）。omc team 未指定模型时默认使用你。覆盖场景：研究分析、代码审查、安全审计、架构设计、Shell/CLI 自动化、代码撰写。
-
-- 审查/审计：findings > 证据 > 验证方式 > 风险列表
-- 架构/设计：指出反例和边界条件，不要因 leader 已有倾向就放弃反驳
-- 实现任务：先验证前提假设再动手
-- 你的价值在于独立判断——与 leader（DSv4）形成异构视角互补
-
----
-
-`;
-    const claudePreface = `<!-- omc-role-preface: claude specialist -->
-
-## 角色定位
-
-你是 **专长补充 worker**（DSv4/Claude）。仅在以下场景使用：中文文档撰写、1M 长上下文搜索/预扫、与 codex 配对的异构交叉验证、用户明确指定。
-
-- 中文输出优先
-- 长上下文任务利用 1M 窗口优势
-- 交叉验证时从不同视角审视 codex 的结论
-
----
-
-`;
+    const r = ROLE_PREFACES[normalizedRole];
+    if (r)
+        return r;
+    // Fallback to provider-based defaults
     switch (agentType) {
-        case 'codex': return codexPreface;
-        case 'claude': return claudePreface;
+        case 'codex': return ROLE_PREFACES['codex_default'];
+        case 'claude': return ROLE_PREFACES['claude_default'];
         default: return '';
     }
 }
+const ROLE_PREFACES = {
+    'code-reviewer': `<!-- omc-role-preface: code-reviewer -->
+## 角色定位
+你是 **独立代码审查 worker**。使用 DSv4-Pro 做 PR 级全量覆盖扫描，GPT-5.4 聚焦逻辑缺陷/边界条件/安全隐患。
+- findings > 证据 > 验证方式 > 风险列表
+- 禁止使用 Write/Edit 工具
+- 输出格式：严重度/文件/行号/问题描述/修复建议
+---
+`,
+    'security-reviewer': `<!-- omc-role-preface: security-reviewer -->
+## 角色定位
+你是 **安全审查 worker**。使用 GPT-5.4 做深度安全审计，DSv4-Pro 做全量依赖审计。
+- OWASP Top 10 / CWE 覆盖
+- 每个 finding 需标注利用难度和影响范围
+- 禁止使用 Write/Edit 工具
+---
+`,
+    critic: `<!-- omc-role-preface: critic -->
+## 角色定位
+你是 **独立挑战者 worker**。使用 GPT-5.4 xhigh。质疑现有方案、指出边界条件、提出替代路径。
+- 对每个结论提出至少一个反例
+- 禁止使用 Write/Edit 工具
+- 输出格式：假设/反例/风险评估/替代方案
+---
+`,
+    architect: `<!-- omc-role-preface: architect -->
+## 角色定位
+你是 **架构 worker**。使用 GPT-5.4 high。系统边界、接口设计、技术选型权衡分析。
+- 跨服务/数据迁移场景触发 DSv4-Pro 全量扫描辅助
+- 输出格式：设计方案/权衡分析/风险评估/实施路径
+---
+`,
+    analyst: `<!-- omc-role-preface: analyst -->
+## 角色定位
+你是 **分析 worker**。使用 GPT-5.4 high。需求分析、系统分析、完整性检查。
+- 识别隐藏约束和需求冲突
+- 安全合规场景触发 DSv4-Pro 辅助
+---
+`,
+    debugger: `<!-- omc-role-preface: debugger -->
+## 角色定位
+你是 **调试 worker**。使用 GPT-5.4 high。根因分析、竞态条件检测、内存泄漏诊断。
+- 连续 3 次假设失败触发 DSv4-Pro 辅助
+- 输出格式：根因/证据/修复方案/验证步骤
+---
+`,
+    verifier: `<!-- omc-role-preface: verifier -->
+## 角色定位
+你是 **验证 worker**。使用 GPT-5.4 high。验证完成证据、测试充分性、安全合规。
+- executor 同模型族时触发异构验证
+- 输出格式：PASS/FAIL/验证证据/回归风险
+---
+`,
+    executor: `<!-- omc-role-preface: executor -->
+## 角色定位
+你是 **执行 worker**。默认 DSv4-Flash 快速执行。>3 文件/>200 行升级 DSv4-Pro。安全/支付/认证逻辑升级 GPT-5.4。
+- 持有全工具权限（唯一写代码的 worker）
+- 输出格式：变更摘要/验证证据
+---
+`,
+    'test-engineer': `<!-- omc-role-preface: test-engineer -->
+## 角色定位
+你是 **测试 worker**。默认 DSv4-Flash。集成测试/E2E/安全测试升级 DSv4-Pro。不稳定测试诊断升级 GPT-5.4。
+- 输出格式：测试用例/覆盖率/不稳定测试分析
+---
+`,
+    'qa-tester': `<!-- omc-role-preface: qa-tester -->
+## 角色定位
+你是 **QA 测试 worker**。默认 DSv4-Flash。长交互 E2E/环境密集型测试升级 DSv4-Pro。
+- tmux 会话管理、服务就绪轮询
+- 输出格式：PASS/FAIL/捕获输出
+---
+`,
+    'git-master': `<!-- omc-role-preface: git-master -->
+## 角色定位
+你是 **Git worker**。默认 DSv4-Flash。冲突密集 rebase/历史手术升级 DSv4-Pro。
+- 原子提交、commit 消息风格检测
+- 禁止 rebase main/master
+---
+`,
+    planner: `<!-- omc-role-preface: planner -->
+## 角色定位
+你是 **规划 worker**。使用 GPT-5.4 xhigh。任务分解、依赖分析、风险识别。
+- 探索>50 文件或>5 服务边界触发 DSv4-Pro 全量扫描辅助
+- 输出格式：任务清单/依赖图/风险矩阵/验收标准
+---
+`,
+    designer: `<!-- omc-role-preface: designer -->
+## 角色定位
+你是 **设计 worker**。使用 GPT-5.4 medium。UI/UX 设计、组件设计、交互设计。
+- 匹配现有框架惯用法
+- 输出格式：设计稿/组件规范/交互流程
+---
+`,
+    'code-simplifier': `<!-- omc-role-preface: code-simplifier -->
+## 角色定位
+你是 **简化 worker**。使用 DSv4-Pro。代码简化、死代码清理、可维护性改进。
+- 保持行为等价，不引入过度抽象
+- 输出格式：简化前后对比/行为等价验证
+---
+`,
+    'document-specialist': `<!-- omc-role-preface: document-specialist -->
+## 角色定位
+你是 **文档 worker**。英文文档使用 GPT-5.4 medium，中文文档使用 DSv4-Flash。
+- 版本感知搜索、来源引用
+- 输出格式：引用来源/代码示例/兼容性说明
+---
+`,
+    explore: `<!-- omc-role-preface: explore -->
+## 角色定位
+你是 **搜索 worker**。使用 DSv4-Flash。速度高于一切。代码库搜索、文件查找、模式匹配。
+- 禁止使用 Write/Edit 工具
+- 永不升级
+- 输出格式：文件路径/匹配行/搜索摘要
+---
+`,
+    writer: `<!-- omc-role-preface: writer -->
+## 角色定位
+你是 **写作 worker**。默认 DSv4-Flash（中文），英文文档使用 GPT-5.4 low。
+- 匹配现有文档风格
+- 验证所有代码示例
+- 输出格式：可扫描结构/已验证代码块
+---
+`,
+    tracer: `<!-- omc-role-preface: tracer -->
+## 角色定位
+你是 **追踪 worker**。使用 GPT-5.4 high。因果追踪、竞争假设、证据分级。
+- 观察与解释分离
+- 输出格式：假设/证据（支持/反对）/不确定性/下一探测建议
+---
+`,
+    scientist: `<!-- omc-role-preface: scientist -->
+## 角色定位
+你是 **科学 worker**。使用 GPT-5.4 high。数据分析、统计验证、假设框架。
+- 使用 python_repl 执行代码（不用 Bash heredocs）
+- 输出格式：发现/证据/局限性/可视化
+---
+`,
+    codex_default: `<!-- omc-role-preface: codex default -->
+## 角色定位
+你是 **默认主力 worker**（GPT-5.4/Codex）。覆盖场景：研究分析、代码审查、安全审计、架构设计、Shell/CLI 自动化、代码撰写。
+- 审查/审计：findings > 证据 > 验证方式 > 风险列表
+- 架构/设计：指出反例和边界条件
+- 实现任务：先验证前提假设再动手
+- 你的价值在于独立判断——与 Leader（DSv4）形成异构视角互补
+---
+`,
+    claude_default: `<!-- omc-role-preface: claude default -->
+## 角色定位
+你是 **专长补充 worker**（DSv4/Claude）。中文文档撰写、1M 长上下文搜索/预扫、与 codex 配对的异构交叉验证。
+- 中文输出优先
+- 长上下文任务利用 1M 窗口优势
+- 交叉验证时从不同视角审视 codex 的结论
+---
+`,
+};
 // ---------------------------------------------------------------------------
 // V2 worker spawning — direct tmux pane creation, no v1 delegation
 // ---------------------------------------------------------------------------
@@ -398,6 +486,112 @@ async function waitForWorkerStartupEvidence(teamName, workerName, taskId, cwd, a
         }
     }
     return false;
+}
+/**
+ * Spawn a DUAL worker pair: creates 2 child workers each claiming
+ * one side of the review. Parent task state transitions happen
+ * through the monitor synthesis path (processCliWorkerVerdicts).
+ */
+async function spawnDualWorkerPair(opts) {
+    // Use taskId * 1000 as base to avoid collision with sequential task files written by startTeamV2
+    const baseId = Number(opts.taskId) * 1000;
+    const childTaskId1 = String(baseId + 1);
+    const childTaskId2 = String(baseId + 2);
+    const secondaryWorkerName = `${opts.primaryWorkerName}-secondary`;
+    const secondaryWorkerIndex = opts.primaryWorkerIndex + 1;
+    // Create parent task JSON (dual_pending)
+    const parentTaskPath = absPath(opts.cwd, TeamPaths.taskFile(opts.teamName, opts.taskId));
+    await mkdir(dirname(parentTaskPath), { recursive: true });
+    await writeFile(parentTaskPath, JSON.stringify({
+        id: opts.taskId, subject: opts.task.subject, description: opts.task.description,
+        status: 'dual_pending', role: opts.role,
+        created_at: new Date().toISOString(),
+        metadata: { dual: { childIds: [childTaskId1, childTaskId2], synthesis: 'pending' } },
+    }, null, 2));
+    // Create child task JSONs (pending — workers will claim them)
+    for (const [childId, label] of [[childTaskId1, 'primary'], [childTaskId2, 'secondary']]) {
+        const childPath = absPath(opts.cwd, TeamPaths.taskFile(opts.teamName, childId));
+        await writeFile(childPath, JSON.stringify({
+            id: childId, subject: `[${label}] ${opts.task.subject}`,
+            description: opts.task.description, status: 'pending',
+            role: opts.role, parentTaskId: opts.taskId,
+            created_at: new Date().toISOString(),
+        }, null, 2));
+    }
+    // Spawn primary worker (child task 1)
+    const primaryResult = await spawnV2Worker({
+        sessionName: opts.sessionName, leaderPaneId: opts.leaderPaneId,
+        existingWorkerPaneIds: opts.existingWorkerPaneIds,
+        teamName: opts.teamName, workerName: opts.primaryWorkerName,
+        workerIndex: opts.primaryWorkerIndex, agentType: opts.primaryAssignment.agentType,
+        task: { ...opts.task, subject: `[primary] ${opts.task.subject}` },
+        taskId: childTaskId1, cwd: opts.cwd, workerCwd: opts.workerCwd,
+        worktreePath: opts.worktreePath, resolvedBinaryPaths: opts.resolvedBinaryPaths,
+        model: opts.primaryAssignment.model || undefined,
+        role: opts.primaryAssignment.role ?? undefined,
+    });
+    // Persist both primary + pre-registered secondary to config.workers
+    // BEFORE spawning the secondary, so queueInboxInstruction
+    // inside spawnV2Worker can find the secondary worker pane.
+    try {
+        const config = await readTeamConfig(opts.teamName, opts.cwd);
+        if (config && primaryResult.paneId) {
+            const secWorkerEntry = {
+                name: secondaryWorkerName, index: secondaryWorkerIndex,
+                role: opts.role, worker_cli: opts.secondaryAssignment.provider,
+                assigned_tasks: [childTaskId2],
+            };
+            // Merge with existing workers
+            const existing = config.workers.filter(w => w.name !== secondaryWorkerName);
+            config.workers = [...existing, secWorkerEntry];
+            await saveTeamConfig(config, opts.cwd);
+        }
+    }
+    catch { /* best-effort */ }
+    // Spawn secondary worker (child task 2).
+    let secondaryResult = null;
+    if (opts.secondaryAssignment) {
+        const secAgentType = opts.secondaryAssignment.provider;
+        secondaryResult = await spawnV2Worker({
+            sessionName: opts.sessionName, leaderPaneId: opts.leaderPaneId,
+            existingWorkerPaneIds: [...opts.existingWorkerPaneIds, ...(primaryResult.paneId ? [primaryResult.paneId] : [])],
+            teamName: opts.teamName, workerName: secondaryWorkerName,
+            workerIndex: secondaryWorkerIndex, agentType: secAgentType,
+            task: { ...opts.task, subject: `[secondary] ${opts.task.subject}` },
+            taskId: childTaskId2, cwd: opts.cwd, workerCwd: opts.workerCwd,
+            worktreePath: opts.worktreePath, resolvedBinaryPaths: opts.resolvedBinaryPaths,
+            model: opts.secondaryAssignment.model || undefined, role: opts.role,
+        });
+    }
+    // Transition parent from dual_pending → dual_in_progress
+    // after both workers have been spawned (best-effort, monitor will catch up)
+    if (primaryResult.paneId || secondaryResult?.paneId) {
+        const deps = {
+            teamName: opts.teamName, cwd: opts.cwd,
+            readTask: async (t, id, c) => {
+                const { readFile } = await import('fs/promises');
+                try {
+                    const raw = await readFile(absPath(c, TeamPaths.taskFile(t, id)), 'utf-8');
+                    return JSON.parse(raw);
+                }
+                catch {
+                    return null;
+                }
+            },
+            withTaskClaimLock: async (_t, _id, _c, fn) => { try {
+                return { ok: true, value: await fn() };
+            }
+            catch {
+                return { ok: false };
+            } },
+            normalizeTask: (t) => ({ ...t, version: t.version ?? 0 }),
+            canTransitionTaskStatus: canTransitionTeamTaskStatus,
+            taskFilePath: (t, id, c) => absPath(c, TeamPaths.taskFile(t, id)),
+            writeAtomic: async (p, d) => { const { writeFile } = await import('fs/promises'); await writeFile(p, d, 'utf-8'); },
+        };
+        await transitionParentTask(opts.taskId, 'dual_pending', 'dual_in_progress', undefined, deps).catch(() => { });
+    }
+    return { primary: primaryResult, secondary: secondaryResult };
 }
 /**
  * Spawn a single v2 worker in a tmux pane.
@@ -513,14 +707,13 @@ async function spawnV2Worker(opts) {
     // Apply layout
     await applyMainVerticalLayout(opts.sessionName);
     // For interactive agents, wait for pane readiness before dispatching startup inbox.
+    let paneReadyFailed = false;
     if (!usePromptMode) {
         const paneReady = await waitForPaneReady(paneId);
         if (!paneReady) {
-            return {
-                paneId,
-                startupAssigned: false,
-                startupFailureReason: 'worker_pane_not_ready',
-            };
+            // Don't return early — still write inbox and attempt dispatch.
+            // The worker may become ready shortly after.
+            paneReadyFailed = true;
         }
     }
     const dispatchOutcome = await queueInboxInstruction({
@@ -592,7 +785,8 @@ async function spawnV2Worker(opts) {
     }
     return {
         paneId,
-        startupAssigned: true,
+        startupAssigned: !paneReadyFailed,
+        startupFailureReason: paneReadyFailed ? 'worker_pane_not_ready' : undefined,
         ...(outputFile ? { outputFile } : {}),
     };
 }
@@ -969,10 +1163,115 @@ export async function startTeamV2(config) {
             if (!task || workerIndex < 0)
                 continue;
             // Route the task through the team's immutable snapshot (Option E).
-            // Falls back to the round-robin agentType when the inferred role is
-            // outside the canonical vocabulary (preserves pre-patch behavior).
             const fallbackAgent = (agentTypes[workerIndex % agentTypes.length] ?? agentTypes[0] ?? 'claude');
             const assignment = resolveTaskAssignment(task, resolvedRouting, pluginCfg.team?.roleRouting, resolvedBinaryPaths, fallbackAgent);
+            // DUAL / DUAL* / SINGLE+ mode dispatch
+            const routingEntry = assignment.role ? resolvedRouting[assignment.role] : undefined;
+            const mode = routingEntry?.mode ?? 'SINGLE';
+            // Only modes that require special handling
+            if (routingEntry && mode !== 'SINGLE') {
+                const re = routingEntry;
+                // DUAL: always spawn pair
+                if (mode === 'DUAL' && re.secondary) {
+                    const dualResults = await spawnDualWorkerPair({
+                        sessionName, leaderPaneId, existingWorkerPaneIds: workerPaneIds,
+                        teamName: sanitized, primaryWorkerName: wName,
+                        primaryWorkerIndex: workerIndex, primaryAssignment: assignment,
+                        secondaryAssignment: re.secondary,
+                        taskIndex: decision.taskIndex, task, taskId,
+                        cwd: leaderCwd, workerCwd: workersInfo[workerIndex]?.working_dir ?? leaderCwd,
+                        worktreePath: workersInfo[workerIndex]?.worktree_path,
+                        resolvedBinaryPaths, role: assignment.role ?? 'executor',
+                        synthesis: re.synthesis ?? { maxReviseCycles: 2 },
+                    });
+                    // Track primary worker
+                    const childId1 = String(Number(taskId) * 1000 + 1);
+                    if (dualResults.primary.paneId) {
+                        workerPaneIds.push(dualResults.primary.paneId);
+                        const wi = workersInfo[workerIndex];
+                        if (wi) {
+                            wi.pane_id = dualResults.primary.paneId;
+                            wi.worker_cli = assignment.agentType;
+                            wi.assigned_tasks = [childId1];
+                            wi.dualPairWorker = `${wName}-secondary`;
+                            wi.dualIndex = 0;
+                            wi.dualTaskId = taskId;
+                        }
+                    }
+                    // Track secondary worker in config.workers so claimTask accepts it
+                    if (dualResults.secondary?.paneId) {
+                        workerPaneIds.push(dualResults.secondary.paneId);
+                        const childId2 = String(Number(taskId) * 1000 + 2);
+                        const secWorkerIndex = workerIndex + 1;
+                        const secAgentType = re.secondary?.provider ?? 'claude';
+                        // Ensure workersInfo has room for the secondary entry
+                        while (workersInfo.length <= secWorkerIndex) {
+                            workersInfo.push({ name: `worker-${workersInfo.length + 1}`, index: workersInfo.length, role: assignment.role ?? 'executor', assigned_tasks: [] });
+                        }
+                        workersInfo[secWorkerIndex] = {
+                            ...workersInfo[secWorkerIndex],
+                            name: `${wName}-secondary`,
+                            index: secWorkerIndex,
+                            role: assignment.role ?? 'executor',
+                            worker_cli: secAgentType,
+                            assigned_tasks: [childId2],
+                            pane_id: dualResults.secondary.paneId,
+                            dualPairWorker: wName,
+                            dualIndex: 1,
+                            dualTaskId: taskId,
+                        };
+                    }
+                    continue;
+                }
+                // DUAL_STAR: evaluate pre-dispatch triggers, upgrade to DUAL if matched
+                if (mode === 'DUAL_STAR' && re.secondary) {
+                    const { estimateTaskComplexity, evaluateDualStarTriggers } = await import('./dual-star-evaluator.js');
+                    const metrics = estimateTaskComplexity(task.subject, task.description);
+                    if (assignment.role === 'verifier') {
+                        const execRouting = resolvedRouting['executor'];
+                        if (execRouting) {
+                            metrics.executorVerifierSameFamily = assignment.agentType === execRouting.primary.provider;
+                        }
+                    }
+                    const triggerResult = evaluateDualStarTriggers(re.dualStarTriggers ?? [], metrics);
+                    if (triggerResult.shouldUpgrade) {
+                        const dualResults = await spawnDualWorkerPair({
+                            sessionName, leaderPaneId, existingWorkerPaneIds: workerPaneIds,
+                            teamName: sanitized, primaryWorkerName: wName,
+                            primaryWorkerIndex: workerIndex, primaryAssignment: assignment,
+                            secondaryAssignment: re.secondary,
+                            taskIndex: decision.taskIndex, task, taskId,
+                            cwd: leaderCwd, workerCwd: workersInfo[workerIndex]?.working_dir ?? leaderCwd,
+                            worktreePath: workersInfo[workerIndex]?.worktree_path,
+                            resolvedBinaryPaths, role: assignment.role ?? 'executor',
+                            synthesis: re.synthesis ?? { maxReviseCycles: 2 },
+                        });
+                        if (dualResults.primary.paneId) {
+                            workerPaneIds.push(dualResults.primary.paneId);
+                            const wi = workersInfo[workerIndex];
+                            if (wi) {
+                                wi.pane_id = dualResults.primary.paneId;
+                                wi.worker_cli = assignment.agentType;
+                                wi.assigned_tasks = [String(Number(taskId) * 1000 + 1)];
+                            }
+                        }
+                        continue;
+                    }
+                    // Fall through to single worker spawn below
+                }
+                // SINGLE_PLUS: resolve ladder step for model selection
+                if (mode === 'SINGLE_PLUS' && re.ladder && re.ladder.length > 0) {
+                    const { classifyTaskShape } = await import('./role-router.js');
+                    const { estimateTaskComplexity } = await import('./dual-star-evaluator.js');
+                    const { resolveLadderStep } = await import('./ladder-resolver.js');
+                    const shape = classifyTaskShape(`${task.subject} ${task.description}`);
+                    const metrics = estimateTaskComplexity(task.subject, task.description);
+                    const ladderResult = resolveLadderStep(re.ladder, metrics, shape, 0);
+                    // Override model with ladder selection (single worker, just different model)
+                    assignment.model = ladderResult.model;
+                    assignment.agentType = ladderResult.provider;
+                }
+            } // end routingEntry mode dispatch block
             const workerLaunch = await spawnV2Worker({
                 sessionName,
                 leaderPaneId,
@@ -1232,6 +1531,30 @@ export async function requeueDeadWorkerTasks(teamName, deadWorkerNames, cwd) {
  * On parse failure, emits a warning event and leaves the task untouched
  * for human review (per plan AC-7).
  */
+/**
+ * Tri-state synthesis for DUAL mode verdicts.
+ * Maps two worker verdicts to a single synthesis result.
+ */
+export function synthesizeDualVerdicts(primaryVerdict, secondaryVerdict, reviseCount, maxReviseCycles) {
+    // Both approve → pass
+    if (primaryVerdict === 'approve' && secondaryVerdict === 'approve')
+        return 'completed';
+    // Approve + concern → pass with advisory note
+    if (primaryVerdict === 'approve' && secondaryVerdict === 'concern')
+        return 'completed';
+    if (primaryVerdict === 'concern' && secondaryVerdict === 'approve')
+        return 'completed';
+    // Both concern → needs revise
+    if (primaryVerdict === 'concern' && secondaryVerdict === 'concern')
+        return 'needs_revise';
+    // Any block: check revise cap
+    if (primaryVerdict === 'block' || secondaryVerdict === 'block') {
+        if (reviseCount >= maxReviseCycles)
+            return 'blocked_for_human';
+        return 'needs_revise';
+    }
+    return 'blocked_for_human';
+}
 export async function processCliWorkerVerdicts(teamName, cwd) {
     const sanitized = sanitizeTeamName(teamName);
     const config = await readTeamConfig(sanitized, cwd);
@@ -1306,7 +1629,7 @@ export async function processCliWorkerVerdicts(teamName, cwd) {
             });
             continue;
         }
-        const terminalStatus = payload.verdict === 'approve' ? 'completed' : 'failed';
+        const terminalStatus = (payload.verdict === 'approve' || payload.verdict === 'concern') ? 'completed' : 'failed';
         let transitionOk = false;
         try {
             withFileLockSync(targetTaskPath + '.lock', () => {
@@ -1380,6 +1703,117 @@ export async function processCliWorkerVerdicts(teamName, cwd) {
         });
     }
     return results;
+}
+// ---------------------------------------------------------------------------
+// DUAL parent-task synthesis — called from monitor when all child tasks terminal
+// ---------------------------------------------------------------------------
+/**
+ * Check all DUAL parent tasks and advance synthesis when all children are terminal.
+ * Called from monitorTeamV2 after each task snapshot.
+ */
+async function advanceDualParentSynthesis(teamName, cwd, allTasks) {
+    const deps = {
+        teamName, cwd,
+        readTask: async (t, id, c) => {
+            const { readFile } = await import('fs/promises');
+            try {
+                const raw = await readFile(absPath(c, TeamPaths.taskFile(t, id)), 'utf-8');
+                return JSON.parse(raw);
+            }
+            catch {
+                return null;
+            }
+        },
+        withTaskClaimLock: async (_t, _id, _c, fn) => {
+            try {
+                return { ok: true, value: await fn() };
+            }
+            catch {
+                return { ok: false };
+            }
+        },
+        normalizeTask: (t) => ({ ...t, version: t.version ?? 0 }),
+        canTransitionTaskStatus: canTransitionTeamTaskStatus,
+        taskFilePath: (t, id, c) => absPath(c, TeamPaths.taskFile(t, id)),
+        writeAtomic: async (p, d) => { const { writeFile } = await import('fs/promises'); await writeFile(p, d, 'utf-8'); },
+    };
+    // Step 1: dual_in_progress → dual_synthesis (all children terminal)
+    const inProgressParents = allTasks.filter(t => t.status === 'dual_in_progress');
+    for (const pt of inProgressParents) {
+        const dualMeta = pt.metadata?.dual;
+        const childIds = dualMeta?.childIds ?? [];
+        if (childIds.length < 2)
+            continue;
+        const childTasks = childIds.map(id => allTasks.find(t => t.id === id)).filter(Boolean);
+        if (childTasks.length < 2)
+            continue;
+        const allTerminal = childTasks.every(ct => ct && (ct.status === 'completed' || ct.status === 'failed'));
+        if (!allTerminal)
+            continue;
+        await transitionParentTask(pt.id, 'dual_in_progress', 'dual_synthesis', undefined, deps).catch(() => { });
+    }
+    // Step 2: dual_synthesis → completed/failed (apply synthesizeDualVerdicts)
+    const synthesisParents = allTasks.filter(t => t.status === 'dual_synthesis');
+    for (const pt of synthesisParents) {
+        const dualMeta = pt.metadata?.dual;
+        const childIds = dualMeta?.childIds ?? [];
+        const reviseCount = dualMeta?.reviseCount ?? 0;
+        if (childIds.length < 2)
+            continue;
+        const childTasks = childIds.map(id => allTasks.find(t => t.id === id)).filter(Boolean);
+        if (childTasks.length < 2)
+            continue;
+        // Map child verdicts to block/approve/concern
+        const mapVerdict = (ct) => {
+            if (!ct)
+                return 'block';
+            const verdictMeta = ct.metadata;
+            const v = verdictMeta?.verdict;
+            if (v === 'approve')
+                return 'approve';
+            if (v === 'concern')
+                return 'concern';
+            // 'revise' and 'reject' from old contracts map to block
+            return 'block';
+        };
+        const primaryVerdict = mapVerdict(childTasks[0]);
+        const secondaryVerdict = mapVerdict(childTasks[1]);
+        const maxRevise = dualMeta?.maxReviseCycles ?? 2;
+        const result = synthesizeDualVerdicts(primaryVerdict, secondaryVerdict, reviseCount, maxRevise);
+        if (result === 'completed') {
+            await transitionParentTask(pt.id, 'dual_synthesis', 'completed', {
+                completed_at: new Date().toISOString(),
+            }, deps).catch(() => { });
+        }
+        else if (result === 'blocked_for_human') {
+            await transitionParentTask(pt.id, 'dual_synthesis', 'failed', {
+                metadata: { dual: { childIds, reviseCount, synthesis: 'blocked_for_human' } },
+            }, deps).catch(() => { });
+        }
+        else if (result === 'needs_revise') {
+            // Create new child task pair for the revision round.
+            // Use parentId * 10000 + round * 2 to avoid collisions with other parents and sequential task files.
+            const newBase = Number(pt.id) * 10000 + (reviseCount + 1) * 2;
+            const newChildId1 = String(newBase);
+            const newChildId2 = String(newBase + 1);
+            try {
+                for (const [cid, label] of [[newChildId1, 'primary'], [newChildId2, 'secondary']]) {
+                    const childPath = absPath(cwd, TeamPaths.taskFile(teamName, cid));
+                    const { writeFile } = await import('fs/promises');
+                    await writeFile(childPath, JSON.stringify({
+                        id: cid, subject: `[${label}] (revise ${reviseCount + 1}) task-${pt.id}`,
+                        description: `Revision round ${reviseCount + 1} for parent task ${pt.id}`,
+                        status: 'pending', parentTaskId: pt.id,
+                        created_at: new Date().toISOString(),
+                    }, null, 2));
+                }
+                await transitionParentTask(pt.id, 'dual_synthesis', 'dual_in_progress', {
+                    metadata: { dual: { childIds: [newChildId1, newChildId2], reviseCount: reviseCount + 1, synthesis: 'pending' } },
+                }, deps).catch(() => { });
+            }
+            catch { /* non-blocking */ }
+        }
+    }
 }
 // ---------------------------------------------------------------------------
 // monitorTeam — snapshot-based, event-driven (no watchdog)
@@ -1524,8 +1958,12 @@ export async function monitorTeamV2(teamName, cwd) {
         in_progress: allTasks.filter((t) => t.status === 'in_progress').length,
         completed: allTasks.filter((t) => t.status === 'completed').length,
         failed: allTasks.filter((t) => t.status === 'failed').length,
+        dual: allTasks.filter((t) => t.status === 'dual_pending' || t.status === 'dual_in_progress' || t.status === 'dual_synthesis').length,
     };
-    const allTasksTerminal = taskCounts.pending === 0 && taskCounts.blocked === 0 && taskCounts.in_progress === 0;
+    const allTasksTerminal = taskCounts.pending === 0 && taskCounts.blocked === 0 &&
+        taskCounts.in_progress === 0 && taskCounts.dual === 0;
+    // Advance DUAL parent tasks whose children have all completed
+    advanceDualParentSynthesis(sanitized, cwd, allTasks).catch(() => { });
     for (const task of allTasks) {
         const missingDependencyIds = getMissingDependencyIds(task, taskById);
         if (missingDependencyIds.length === 0) {
@@ -1652,7 +2090,7 @@ export async function shutdownTeamV2(teamName, cwd, options = {}) {
             total: allTasks.length,
             pending: allTasks.filter((t) => t.status === 'pending').length,
             blocked: allTasks.filter((t) => t.status === 'blocked').length,
-            in_progress: allTasks.filter((t) => t.status === 'in_progress').length,
+            in_progress: allTasks.filter((t) => t.status === 'in_progress' || t.status === 'dual_pending' || t.status === 'dual_in_progress' || t.status === 'dual_synthesis').length,
             completed: allTasks.filter((t) => t.status === 'completed').length,
             failed: allTasks.filter((t) => t.status === 'failed').length,
             allowed: false,

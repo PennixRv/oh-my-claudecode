@@ -1,12 +1,18 @@
 export declare const TEAM_NAME_SAFE_PATTERN: RegExp;
 export declare const WORKER_NAME_SAFE_PATTERN: RegExp;
 export declare const TASK_ID_SAFE_PATTERN: RegExp;
-export declare const TEAM_TASK_STATUSES: readonly ["pending", "blocked", "in_progress", "completed", "failed"];
+export declare const TEAM_TASK_STATUSES: readonly ["pending", "blocked", "in_progress", "completed", "failed", "dual_pending", "dual_in_progress", "dual_synthesis"];
 export type TeamTaskStatus = (typeof TEAM_TASK_STATUSES)[number];
 export declare const TEAM_TERMINAL_TASK_STATUSES: ReadonlySet<TeamTaskStatus>;
+/** Statuses that indicate a DUAL parent task — used for gates that need to differentiate. */
+export declare const TEAM_DUAL_TASK_STATUSES: ReadonlySet<TeamTaskStatus>;
+/** Statuses that should block team shutdown (non-terminal, including dual workflow states). */
+export declare const TEAM_ACTIVE_TASK_STATUSES: ReadonlySet<TeamTaskStatus>;
 export declare const TEAM_TASK_STATUS_TRANSITIONS: Readonly<Record<TeamTaskStatus, readonly TeamTaskStatus[]>>;
 export declare function isTerminalTeamTaskStatus(status: TeamTaskStatus): boolean;
 export declare function canTransitionTeamTaskStatus(from: TeamTaskStatus, to: TeamTaskStatus): boolean;
+/** Returns true when a task is a DUAL parent (not claimable by workers). */
+export declare function isDualParentTask(status: TeamTaskStatus): boolean;
 export declare const TEAM_EVENT_TYPES: readonly ["task_completed", "task_failed", "worker_idle", "worker_stopped", "message_received", "shutdown_ack", "shutdown_gate", "shutdown_gate_forced", "approval_decision", "team_leader_nudge"];
 export type TeamEventType = (typeof TEAM_EVENT_TYPES)[number];
 export declare const TEAM_TASK_APPROVAL_STATUSES: readonly ["pending", "approved", "rejected"];

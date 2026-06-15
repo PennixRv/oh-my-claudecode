@@ -159,6 +159,11 @@ export interface CliWorkerVerdictResult {
  * On parse failure, emits a warning event and leaves the task untouched
  * for human review (per plan AC-7).
  */
+/**
+ * Tri-state synthesis for DUAL mode verdicts.
+ * Maps two worker verdicts to a single synthesis result.
+ */
+export declare function synthesizeDualVerdicts(primaryVerdict: 'approve' | 'concern' | 'block', secondaryVerdict: 'approve' | 'concern' | 'block', reviseCount: number, maxReviseCycles: number): 'completed' | 'needs_revise' | 'blocked_for_human';
 export declare function processCliWorkerVerdicts(teamName: string, cwd: string): Promise<CliWorkerVerdictResult[]>;
 /**
  * Take a single monitor snapshot of team state.

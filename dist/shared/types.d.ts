@@ -369,13 +369,43 @@ export interface ResolveDelegationOptions {
     explicitModel?: string;
     config?: DelegationRoutingConfig;
 }
-/** Canonical role names accepted in `team.roleRouting` (source of truth). */
-export declare const CANONICAL_TEAM_ROLES: readonly ["orchestrator", "planner", "analyst", "architect", "executor", "debugger", "critic", "code-reviewer", "security-reviewer", "test-engineer", "designer", "writer", "code-simplifier", "explore", "document-specialist"];
+/** Canonical role names accepted in `team.roleRouting` (source of truth).
+ *  20 roles: 1 orchestrator + 19 worker roles. */
+export declare const CANONICAL_TEAM_ROLES: readonly ["orchestrator", "planner", "analyst", "architect", "executor", "debugger", "critic", "code-reviewer", "security-reviewer", "test-engineer", "designer", "writer", "code-simplifier", "explore", "document-specialist", "verifier", "qa-tester", "scientist", "tracer", "git-master"];
 export type CanonicalTeamRole = typeof CANONICAL_TEAM_ROLES[number];
 /** Provider for /team role routing. */
 export type TeamRoleProvider = 'claude' | 'codex' | 'gemini' | 'grok';
 /** Tier name accepted in role-assignment `model` field. */
 export type TeamRoleTier = 'HIGH' | 'MEDIUM' | 'LOW';
+/** Execution mode for a team role. */
+export type TeamExecutionMode = 'SINGLE' | 'SINGLE_PLUS' | 'DUAL' | 'DUAL_STAR';
+/** Worker-level verdict for DUAL mode. */
+export type DualVerdict = 'approve' | 'concern' | 'block';
+/** Synthesis result after aggregating dual worker verdicts. */
+export type SynthesisResult = 'completed' | 'needs_revise' | 'blocked_for_human';
+/** Synthesis configuration for DUAL mode. */
+export interface SynthesisConfig {
+    /** Max revise cycles before escalating blocked_for_human. */
+    maxReviseCycles: number;
+}
+/** A trigger condition for DUAL* (conditional dual upgrade). */
+export interface DualStarTrigger {
+    type: string;
+    secondaryProvider?: TeamRoleProvider;
+    secondaryModel?: string;
+}
+/** A single rung on the SINGLE+ escalation ladder. */
+export interface LadderStep {
+    model: string;
+    provider: TeamRoleProvider;
+    thinkingDepth?: 'low' | 'medium' | 'high' | 'xhigh';
+    triggers: LadderTrigger[];
+}
+/** A trigger condition in a SINGLE+ ladder step. */
+export interface LadderTrigger {
+    type: string;
+    value?: number | string;
+}
 /** Known agent names derived from `buildDefaultConfig().agents` keys in src/config/loader.ts. */
 export declare const KNOWN_AGENT_NAMES: readonly ["omc", "explore", "analyst", "planner", "architect", "debugger", "executor", "verifier", "securityReviewer", "codeReviewer", "testEngineer", "designer", "writer", "qaTester", "scientist", "tracer", "gitMaster", "codeSimplifier", "critic", "documentSpecialist"];
 export type KnownAgentName = typeof KNOWN_AGENT_NAMES[number];
@@ -385,6 +415,19 @@ export interface TeamRoleAssignmentSpec {
     /** Tier name ('HIGH' | 'MEDIUM' | 'LOW') or explicit model ID. */
     model?: TeamRoleTier | string;
     agent?: KnownAgentName;
+    /** Execution mode: SINGLE (default), SINGLE_PLUS, DUAL, DUAL_STAR. */
+    executionMode?: TeamExecutionMode;
+    /** Secondary model assignment (for DUAL / DUAL*). */
+    secondary?: {
+        provider?: TeamRoleProvider;
+        model?: TeamRoleTier | string;
+    };
+    /** Synthesis rules (for DUAL mode, defaults to max 2 revise cycles). */
+    synthesis?: SynthesisConfig;
+    /** DUAL* trigger configuration. */
+    dualStarTriggers?: DualStarTrigger[];
+    /** SINGLE+ escalation ladder. */
+    ladder?: LadderStep[];
 }
 /** Orchestrator is pinned to claude; only `model` is user-configurable. */
 export type OrchestratorSpec = Pick<TeamRoleAssignmentSpec, 'model'>;
@@ -413,5 +456,15 @@ export interface RoleAssignment {
     /** Resolved model ID (tier names expanded to explicit model strings). */
     model: string;
     agent: KnownAgentName;
+    /** Execution mode for this role assignment. */
+    executionMode?: TeamExecutionMode;
+    /** Secondary model (for DUAL / DUAL*). */
+    secondary?: RoleAssignment;
+    /** Synthesis config (for DUAL mode). */
+    synthesis?: SynthesisConfig;
+    /** DUAL* triggers. */
+    dualStarTriggers?: DualStarTrigger[];
+    /** SINGLE+ escalation ladder. */
+    ladder?: LadderStep[];
 }
 //# sourceMappingURL=types.d.ts.map

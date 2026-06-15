@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { readFile, readdir } from 'fs/promises';
+import { isDualParentTask } from '../contracts.js';
 export async function computeTaskReadiness(teamName, taskId, cwd, deps) {
     const task = await deps.readTask(teamName, taskId, cwd);
     if (!task)
@@ -40,6 +41,9 @@ export async function claimTask(taskId, workerName, expectedVersion, deps) {
         if (deps.isTerminalTaskStatus(v.status))
             return { ok: false, error: 'already_terminal' };
         if (v.status === 'in_progress')
+            return { ok: false, error: 'claim_conflict' };
+        // DUAL parent tasks cannot be claimed by workers — use system transition
+        if (isDualParentTask(v.status))
             return { ok: false, error: 'claim_conflict' };
         if (v.status === 'pending' || v.status === 'blocked') {
             if (v.claim)
@@ -221,6 +225,41 @@ export async function listTasks(teamName, cwd, deps) {
 }
 export const CLAIM_TTL_MS = 15 * 60 * 1000;
 export const CLAIM_GRACE_MS = 5 * 60 * 1000;
+/**
+ * System-only transition for DUAL parent tasks. Bypasses owner/claim_token checks
+ * since parent tasks are never claimed by workers.
+ */
+export async function transitionParentTask(parentTaskId, from, to, extraFields, deps) {
+    if (!deps.canTransitionTaskStatus(from, to))
+        return { ok: false, error: 'invalid_transition' };
+    const lock = await deps.withTaskClaimLock(deps.teamName, parentTaskId, deps.cwd, async () => {
+        const current = await deps.readTask(deps.teamName, parentTaskId, deps.cwd);
+        if (!current)
+            return { ok: false, error: 'task_not_found' };
+        const v = deps.normalizeTask(current);
+        if (v.status !== from)
+            return { ok: false, error: 'invalid_transition' };
+        if (!deps.canTransitionTaskStatus(v.status, to))
+            return { ok: false, error: 'invalid_transition' };
+        // Safety: only dual parent tasks can use system-only transition.
+        // Ordinary tasks must go through claim-based transitionTaskStatus().
+        if (!isDualParentTask(v.status))
+            return { ok: false, error: 'invalid_transition' };
+        const updated = {
+            ...v,
+            status: to,
+            completed_at: extraFields?.completed_at ?? (to === 'completed' ? new Date().toISOString() : v.completed_at),
+            metadata: extraFields?.metadata ?? v.metadata,
+            claim: undefined,
+            version: v.version + 1,
+        };
+        await deps.writeAtomic(deps.taskFilePath(deps.teamName, parentTaskId, deps.cwd), JSON.stringify(updated, null, 2));
+        return { ok: true, task: updated };
+    });
+    if (!lock.ok)
+        return { ok: false, error: 'claim_conflict' };
+    return lock.value;
+}
 /**
  * Renew the claim lease for a task owned by the given worker.
  * Called from the heartbeat path so long-running tasks stay claimed.

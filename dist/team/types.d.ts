@@ -6,7 +6,7 @@
 import type { TeamTaskStatus } from './contracts.js';
 import type { TeamPhase } from './phase-controller.js';
 import type { TeamLeaderNextAction } from './leader-nudge-guidance.js';
-import type { CanonicalTeamRole, RoleAssignment } from '../shared/types.js';
+import type { CanonicalTeamRole, RoleAssignment, TeamExecutionMode, SynthesisConfig, DualStarTrigger } from '../shared/types.js';
 /** Bridge daemon configuration — passed via --config file to bridge-entry.ts */
 export interface BridgeConfig {
     teamName: string;
@@ -43,9 +43,11 @@ export interface TaskFile {
     claimedBy?: string;
     claimedAt?: number;
     claimPid?: number;
+    /** For DUAL mode: ID of the parent task (undefined for normal or parent tasks). */
+    parentTaskId?: string;
 }
 /** Partial update for a task file (only fields being changed) */
-export type TaskFileUpdate = Partial<Pick<TaskFile, 'status' | 'owner' | 'metadata' | 'claimedBy' | 'claimedAt' | 'claimPid'>>;
+export type TaskFileUpdate = Partial<Pick<TaskFile, 'status' | 'owner' | 'metadata' | 'claimedBy' | 'claimedAt' | 'claimPid' | 'parentTaskId'>>;
 /** JSONL message from lead -> worker (inbox) */
 export interface InboxMessage {
     type: 'message' | 'context';
@@ -171,6 +173,9 @@ export interface TeamTask {
     completed_at?: string;
     delegation?: TeamTaskDelegationPlan;
     delegation_compliance?: TeamTaskDelegationComplianceEvidence;
+    metadata?: Record<string, unknown>;
+    /** For DUAL mode: ID of the parent task (undefined for normal or parent tasks). */
+    parentTaskId?: string;
 }
 /** Team leader identity */
 export interface TeamLeader {
@@ -227,6 +232,16 @@ export interface TeamManifestV2 {
     resize_hook_target: string | null;
     next_worker_index?: number;
 }
+/** Resolved execution plan for a canonical role (replaces inline primary/fallback pair). */
+export interface ResolvedRoleExecutionPlan {
+    primary: RoleAssignment;
+    fallback: RoleAssignment;
+    mode: TeamExecutionMode;
+    secondary?: RoleAssignment;
+    synthesis?: SynthesisConfig;
+    dualStarTriggers?: DualStarTrigger[];
+    ladder?: import('../shared/types.js').LadderStep[];
+}
 /** Worker info within a team config */
 export interface WorkerInfo {
     name: string;
@@ -249,6 +264,12 @@ export interface WorkerInfo {
      * Consumed by the worker-completion handler in runtime-v2.
      */
     output_file?: string;
+    /** For DUAL mode: the paired worker name. */
+    dualPairWorker?: string;
+    /** For DUAL mode: worker index in the pair (0=primary, 1=secondary). */
+    dualIndex?: 0 | 1;
+    /** For DUAL mode: the shared parent task ID both workers contribute to. */
+    dualTaskId?: string;
 }
 /** Team configuration (V1 compat) */
 export interface TeamConfig {
@@ -280,10 +301,7 @@ export interface TeamConfig {
      * Populated at team creation by `buildResolvedRoutingSnapshot()`; read by
      * `scaleUp`, worker restart, and spawn paths. Immutable for the team's lifetime.
      */
-    resolved_routing?: Record<CanonicalTeamRole, {
-        primary: RoleAssignment;
-        fallback: RoleAssignment;
-    }>;
+    resolved_routing?: Record<CanonicalTeamRole, ResolvedRoleExecutionPlan>;
 }
 /** Dispatch request kinds */
 export type TeamDispatchRequestKind = 'inbox' | 'mailbox' | 'nudge';
