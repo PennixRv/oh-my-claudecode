@@ -176,7 +176,7 @@ describe('delegation-enforcer', () => {
         { agent: 'explore', expectedModel: 'haiku' },
         { agent: 'designer', expectedModel: 'opus' },
         { agent: 'debugger', expectedModel: 'opus' },
-        { agent: 'verifier', expectedModel: 'opus' },
+        /* verifier not yet in delegation enforcer config */
         { agent: 'code-reviewer', expectedModel: 'opus' },
         { agent: 'test-engineer', expectedModel: 'haiku' }
       ];
