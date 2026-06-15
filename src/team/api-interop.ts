@@ -48,6 +48,7 @@ import { injectToLeaderPane, sendToWorker } from './tmux-session.js';
 import { listDispatchRequests, markDispatchRequestDelivered, markDispatchRequestNotified } from './dispatch-queue.js';
 import { generateMailboxTriggerMessage } from './worker-bootstrap.js';
 import { shutdownTeam } from './runtime.js';
+import { TeamPaths, absPath } from './state-paths.js';
 import { shutdownTeamV2 } from './runtime-v2.js';
 import { inspectTeamWorktreeCleanupSafety } from './git-worktree.js';
 import { createSwallowedErrorLogger } from '../lib/swallowed-error.js';
@@ -855,7 +856,7 @@ export async function executeTeamApiOperation(
           try {
             const { readFile } = await import('fs/promises');
             const { join } = await import('path');
-            const taskPath = join(cwd, '.omc', 'state', 'team', teamName, 'tasks', `task-${taskId}.json`);
+            const taskPath = absPath(cwd, TeamPaths.taskFile(teamName, taskId));
             const raw = await readFile(taskPath, 'utf-8');
             const task = JSON.parse(raw);
             owner = task?.owner ?? '';
