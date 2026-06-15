@@ -1,0 +1,127 @@
+#!/bin/bash
+# omc-wait-task <team> <task-id> <state-dir> — 阻塞等待 OMC task 完成，自动回收 team
+# v2: inotifywait 事件驱动 + jq 降级轮询，替代 omc-poll-task
+set -o pipefail
+
+TEAM="$1"
+TASK_ID="$2"
+STATE_DIR="${3:-}"  # 显式传入，不再 find 盲搜
+POLL_FILE="/tmp/omc-wait-${TEAM}-task${TASK_ID}.txt"
+TIMEOUT="${OMC_WAIT_TIMEOUT:-1800}"  # 30 分钟总超时
+FALLBACK_INTERVAL="${OMC_WAIT_FALLBACK:-30}"  # 降级轮询间隔
+LAST_STATUS=""
+
+# ---- 显式 state dir，不再猜测 ----
+if [ -z "$STATE_DIR" ]; then
+  echo "$(date +%H:%M:%S) FATAL: state-dir required as 3rd argument" > "$POLL_FILE"
+  exit 2
+fi
+
+TASK_FILE="${STATE_DIR}/tasks/task-${TASK_ID}.json"
+REPORT_DIR="$(dirname "$(dirname "$(dirname "$STATE_DIR")")")/reports/auto"
+
+if [ ! -f "$TASK_FILE" ]; then
+  echo "$(date +%H:%M:%S) FATAL: task file not found: ${TASK_FILE}" > "$POLL_FILE"
+  exit 2
+fi
+
+echo "$(date +%H:%M:%S) waiter start: team=${TEAM} task=${TASK_ID} state_dir=${STATE_DIR}" > "$POLL_FILE"
+START_TS=$(date +%s)
+
+# ---- cleanup helper ----
+cleanup_team() {
+  echo "$(date +%H:%M:%S) auto-shutdown: team=${TEAM}" >> "$POLL_FILE"
+  omc team shutdown "$TEAM" --force 2>/dev/null
+  # Scoped cleanup — only this team's temp files
+  rm -f "/tmp/omc-wait-${TEAM}-task${TASK_ID}.txt"
+  rm -f "/tmp/omc-poll-${TEAM}-task"*".txt"
+}
+
+# ---- 读取当前状态 ----
+read_status() {
+  jq -r '.status // "unknown"' "$TASK_FILE" 2>/dev/null || echo "unknown"
+}
+
+# ---- 主循环：inotifywait 为主，降级轮询为辅 ----
+if command -v inotifywait &> /dev/null; then
+  echo "$(date +%H:%M:%S) using inotifywait (event-driven)" >> "$POLL_FILE"
+
+  while true; do
+    # 先读一次当前状态
+    STATUS=$(read_status)
+    echo "$(date +%H:%M:%S) task-${TASK_ID}: ${STATUS}" > "$POLL_FILE"
+
+    # Terminal → done
+    if [ "$STATUS" = "completed" ] || [ "$STATUS" = "failed" ]; then
+      RESULT=$(jq -r '(.result // .error // "")[:500]' "$TASK_FILE" 2>/dev/null)
+      echo "$(date +%H:%M:%S) TASK_${STATUS^^} | ${RESULT}" >> "$POLL_FILE"
+      REPORT_GLOB="${REPORT_DIR}/${TEAM}-task${TASK_ID}-*.md"
+      if compgen -G "$REPORT_GLOB" > /dev/null 2>&1; then
+        echo "$(date +%H:%M:%S) 报告: $(ls -t $REPORT_GLOB | head -1)" >> "$POLL_FILE"
+      fi
+      cleanup_team
+      exit 0
+    fi
+
+    # DUAL: child terminal → switch to parent
+    PARENT_ID=$(jq -r '.parentTaskId // empty' "$TASK_FILE" 2>/dev/null)
+    if [ -n "$PARENT_ID" ] && [ "$STATUS" = "completed" ]; then
+      echo "$(date +%H:%M:%S) DUAL child done, switching to parent task-${PARENT_ID}" >> "$POLL_FILE"
+      TASK_ID="$PARENT_ID"
+      TASK_FILE="${STATE_DIR}/tasks/task-${TASK_ID}.json"
+      continue
+    fi
+
+    # Total timeout
+    ELAPSED=$(($(date +%s) - START_TS))
+    if [ $ELAPSED -gt $TIMEOUT ]; then
+      echo "$(date +%H:%M:%S) TIMEOUT after ${TIMEOUT}s — force shutdown" >> "$POLL_FILE"
+      cleanup_team
+      exit 1
+    fi
+
+    # Block until file changes (max FALLBACK_INTERVAL seconds)
+    if inotifywait -q -t "$FALLBACK_INTERVAL" -e modify,close_write "$TASK_FILE" 2>/dev/null; then
+      :
+    else
+      # inotifywait timeout or error → fallback: manual jq check
+      STATUS=$(read_status)
+      if [ "$STATUS" != "$LAST_STATUS" ]; then
+        echo "$(date +%H:%M:%S) fallback poll: ${LAST_STATUS} → ${STATUS}" >> "$POLL_FILE"
+      fi
+    fi
+    LAST_STATUS="$STATUS"
+  done
+else
+  # ---- 无 inotifywait，纯降级轮询 ----
+  echo "$(date +%H:%M:%S) inotifywait not available, using poll fallback" >> "$POLL_FILE"
+
+  while true; do
+    STATUS=$(read_status)
+    echo "$(date +%H:%M:%S) task-${TASK_ID}: ${STATUS}" > "$POLL_FILE"
+
+    if [ "$STATUS" = "completed" ] || [ "$STATUS" = "failed" ]; then
+      RESULT=$(jq -r '(.result // .error // "")[:500]' "$TASK_FILE" 2>/dev/null)
+      echo "$(date +%H:%M:%S) TASK_${STATUS^^} | ${RESULT}" >> "$POLL_FILE"
+      cleanup_team
+      exit 0
+    fi
+
+    PARENT_ID=$(jq -r '.parentTaskId // empty' "$TASK_FILE" 2>/dev/null)
+    if [ -n "$PARENT_ID" ] && [ "$STATUS" = "completed" ]; then
+      echo "$(date +%H:%M:%S) DUAL child done, switching to parent task-${PARENT_ID}" >> "$POLL_FILE"
+      TASK_ID="$PARENT_ID"
+      TASK_FILE="${STATE_DIR}/tasks/task-${TASK_ID}.json"
+      continue
+    fi
+
+    ELAPSED=$(($(date +%s) - START_TS))
+    if [ $ELAPSED -gt $TIMEOUT ]; then
+      echo "$(date +%H:%M:%S) TIMEOUT after ${TIMEOUT}s — force shutdown" >> "$POLL_FILE"
+      cleanup_team
+      exit 1
+    fi
+
+    sleep "$FALLBACK_INTERVAL"
+  done
+fi
