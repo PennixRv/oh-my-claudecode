@@ -873,7 +873,25 @@ async function spawnDualWorkerPair(opts: SpawnDualWorkerPairOptions): Promise<{
     role: opts.primaryAssignment.role ?? undefined,
   });
 
-  // Spawn secondary worker (child task 2)
+  // Persist both primary + pre-registered secondary to config.workers
+  // BEFORE spawning the secondary, so queueInboxInstruction
+  // inside spawnV2Worker can find the secondary worker pane.
+  try {
+    const config = await readTeamConfig(opts.teamName, opts.cwd);
+    if (config && primaryResult.paneId) {
+      const secWorkerEntry: WorkerInfo = {
+        name: secondaryWorkerName, index: secondaryWorkerIndex,
+        role: opts.role, worker_cli: opts.secondaryAssignment.provider as WorkerInfo['worker_cli'],
+        assigned_tasks: [childTaskId2],
+      };
+      // Merge with existing workers
+      const existing = config.workers.filter(w => w.name !== secondaryWorkerName);
+      config.workers = [...existing, secWorkerEntry];
+      await saveTeamConfig(config, opts.cwd);
+    }
+  } catch { /* best-effort */ }
+
+  // Spawn secondary worker (child task 2).
   let secondaryResult: SpawnV2WorkerResult | null = null;
   if (opts.secondaryAssignment) {
     const secAgentType = opts.secondaryAssignment.provider;
@@ -1046,14 +1064,13 @@ async function spawnV2Worker(opts: SpawnV2WorkerOptions): Promise<SpawnV2WorkerR
   await applyMainVerticalLayout(opts.sessionName);
 
   // For interactive agents, wait for pane readiness before dispatching startup inbox.
+  let paneReadyFailed = false;
   if (!usePromptMode) {
     const paneReady = await waitForPaneReady(paneId);
     if (!paneReady) {
-      return {
-        paneId,
-        startupAssigned: false,
-        startupFailureReason: 'worker_pane_not_ready',
-      };
+      // Don't return early — still write inbox and attempt dispatch.
+      // The worker may become ready shortly after.
+      paneReadyFailed = true;
     }
   }
 
@@ -1145,7 +1162,8 @@ async function spawnV2Worker(opts: SpawnV2WorkerOptions): Promise<SpawnV2WorkerR
 
   return {
     paneId,
-    startupAssigned: true,
+    startupAssigned: !paneReadyFailed,
+    startupFailureReason: paneReadyFailed ? 'worker_pane_not_ready' : undefined,
     ...(outputFile ? { outputFile } : {}),
   };
 }
