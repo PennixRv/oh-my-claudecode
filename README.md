@@ -588,7 +588,7 @@ Top personal non-fork, non-archived repos from all-time OMC contributors (100+ G
 - [@HaD0Yun](https://github.com/HaD0Yun) — [Doyunha-Gopeak](https://github.com/HaD0Yun/Doyunha-Gopeak) (⭐ 207)
 - [@emgeee](https://github.com/emgeee) — [mean-tutorial](https://github.com/emgeee/mean-tutorial) (⭐ 200)
 - [@anduinnn](https://github.com/anduinnn) — [HiFiNi-Auto-CheckIn](https://github.com/anduinnn/HiFiNi-Auto-CheckIn) (⭐ 171)
-- [@devswha](https://github.com/devswha) — [patina](https://github.com/devswha/patina) (⭐ 165)
+- [@devswha](https://github.com/devswha) — [patina](https://github.com/devswha/patina) (⭐ 166)
 - [@Znuff](https://github.com/Znuff) — [consolas-powerline](https://github.com/Znuff/consolas-powerline) (⭐ 146)
 
 <!-- OMC:FEATURED-CONTRIBUTORS:END -->

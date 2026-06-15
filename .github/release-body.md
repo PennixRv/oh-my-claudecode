@@ -1,4 +1,4 @@
-# oh-my-claudecode v5.3.3: Bug Fixes
+# oh-my-claudecode v5.3.4: Bug Fixes
 
 ## Release Notes
 
@@ -6,11 +6,11 @@ Release with **1 bug fix** across **0 merged PRs**.
 
 ### Highlights
 
-- **fix: tighten paneLooksReady — only check last 3 lines for prompt**
+- **fix: clear pane scrollback after respawn to prevent inherited prompt false-positive**
 
 ### Bug Fixes
 
-- **fix: tighten paneLooksReady — only check last 3 lines for prompt**
+- **fix: clear pane scrollback after respawn to prevent inherited prompt false-positive**
 
 ### Stats
 
@@ -19,7 +19,7 @@ Release with **1 bug fix** across **0 merged PRs**.
 ### Install / Update
 
 ```bash
-npm install -g oh-my-claude-pennix@5.3.3
+npm install -g oh-my-claude-pennix@5.3.4
 ```
 
 Or reinstall the plugin:
@@ -27,4 +27,4 @@ Or reinstall the plugin:
 claude /install-plugin oh-my-claudecode
 ```
 
-**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-claudecode/compare/v5.3.1...v5.3.3
+**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-claudecode/compare/v5.3.3...v5.3.4
