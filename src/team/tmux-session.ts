@@ -845,6 +845,15 @@ export async function spawnWorkerInPane(
   }
 
   try {
+    // Clear scrollback BEFORE respawn to prevent inherited old prompts
+    // from a parent pane (e.g. DUAL secondary split from primary) from
+    // causing false-positive readiness checks.
+    try {
+      await tmuxExecAsync(['clear-history', '-t', paneId], { timeout: 3000 });
+    } catch {
+      // Non-fatal: some tmux versions may not support clear-history.
+    }
+
     // Start the worker directly in the pane instead of typing a shell command
     // into an interactive prompt. This avoids command echo and gives the TUI
     // direct ownership of stdin from the first frame.
@@ -855,16 +864,6 @@ export async function spawnWorkerInPane(
       `worker start respawn-pane session=${sessionName} pane=${paneId} ` +
       `worker=${config.workerName} cmdSha=${fingerprint} sendStatus=0 stderr=${JSON.stringify(sendResult.stderr.trim())}`,
     );
-
-    // Clear the pane's scrollback history so that readiness checks only see
-    // output from the NEW process, not inherited prompts from a parent pane.
-    // This prevents false-positive readiness in DUAL mode where secondary
-    // workers split from an already-active primary pane.
-    try {
-      await tmuxExecAsync(['clear-history', '-t', paneId], { timeout: 3000 });
-    } catch {
-      // Non-fatal: clear-history is best-effort. Some tmux versions may not support it.
-    }
   } catch (error) {
     logWorkerSpawnDiagnostic(
       `worker start respawn-pane failed session=${sessionName} pane=${paneId} ` +
