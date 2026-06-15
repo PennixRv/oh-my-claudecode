@@ -1,17 +1,17 @@
-# oh-my-claudecode v5.3.7: waitForTeamCompletion() — pure
+# oh-my-claudecode v5.3.8: Bug Fixes
 
 ## Release Notes
 
-Release with **1 new feature** across **0 merged PRs**.
+Release with **1 bug fix** across **0 merged PRs**.
 
 ### Highlights
 
-- **feat: waitForTeamCompletion() — pure TS team lifecycle, zero shell**
+- **fix: increase notifyStartupInbox retry from 1 to 4 attempts**
 
-### New Features
+### Bug Fixes
 
-- **feat: waitForTeamCompletion() — pure TS team lifecycle, zero shell**
+- **fix: increase notifyStartupInbox retry from 1 to 4 attempts**
 
 ### Stats
 
-- **0 PRs merged** | **1 new feature** | **0 bug fixes** | **0 security/hardening improvements** | **0 other changes**
+- **0 PRs merged** | **0 new features** | **1 bug fix** | **0 security/hardening improvements** | **0 other changes**

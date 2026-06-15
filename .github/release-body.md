@@ -1,25 +1,25 @@
-# oh-my-claudecode v5.3.7: waitForTeamCompletion() — pure
+# oh-my-claudecode v5.3.8: Bug Fixes
 
 ## Release Notes
 
-Release with **1 new feature** across **0 merged PRs**.
+Release with **1 bug fix** across **0 merged PRs**.
 
 ### Highlights
 
-- **feat: waitForTeamCompletion() — pure TS team lifecycle, zero shell**
+- **fix: increase notifyStartupInbox retry from 1 to 4 attempts**
 
-### New Features
+### Bug Fixes
 
-- **feat: waitForTeamCompletion() — pure TS team lifecycle, zero shell**
+- **fix: increase notifyStartupInbox retry from 1 to 4 attempts**
 
 ### Stats
 
-- **0 PRs merged** | **1 new feature** | **0 bug fixes** | **0 security/hardening improvements** | **0 other changes**
+- **0 PRs merged** | **0 new features** | **1 bug fix** | **0 security/hardening improvements** | **0 other changes**
 
 ### Install / Update
 
 ```bash
-npm install -g oh-my-claude-pennix@5.3.7
+npm install -g oh-my-claude-pennix@5.3.8
 ```
 
 Or reinstall the plugin:
@@ -27,4 +27,4 @@ Or reinstall the plugin:
 claude /install-plugin oh-my-claudecode
 ```
 
-**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-claudecode/compare/v5.3.6...v5.3.7
+**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-claudecode/compare/v5.3.7...v5.3.8
