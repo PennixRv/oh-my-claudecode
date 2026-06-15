@@ -95,7 +95,7 @@ describe('delegation-enforcer', () => {
       const result = enforceModel(input);
 
       expect(result.injected).toBe(true);
-      expect(result.modifiedInput.model).toBe('sonnet'); // executor defaults to claude-sonnet-4-6
+      expect(result.modifiedInput.model).toBe('haiku'); // executor defaults to haiku-tier (LOW)
       expect(result.originalInput.model).toBeUndefined();
     });
 
@@ -172,7 +172,7 @@ describe('delegation-enforcer', () => {
     it('works with all agents', () => {
       const testCases = [
         { agent: 'architect', expectedModel: 'opus' },
-        { agent: 'executor', expectedModel: 'sonnet' },
+        { agent: 'executor', expectedModel: 'haiku' },
         { agent: 'explore', expectedModel: 'haiku' },
         { agent: 'designer', expectedModel: 'opus' },
         { agent: 'debugger', expectedModel: 'opus' },
@@ -315,7 +315,7 @@ describe('delegation-enforcer', () => {
     });
 
     it('returns correct model for agent without prefix', () => {
-      expect(getModelForAgent('executor')).toBe('sonnet');
+      expect(getModelForAgent('executor')).toBe('haiku');
       expect(getModelForAgent('debugger')).toBe('opus');
       expect(getModelForAgent('architect')).toBe('opus');
       expect(getModelForAgent('build-fixer')).toBe('opus');
