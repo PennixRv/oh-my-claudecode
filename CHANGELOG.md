@@ -1,17 +1,21 @@
-# oh-my-claudecode v5.3.4: Bug Fixes
+# oh-my-claudecode v5.3.5: Bug Fixes
 
 ## Release Notes
 
-Release with **1 bug fix** across **0 merged PRs**.
+Release with **3 bug fixes** across **0 merged PRs**.
 
 ### Highlights
 
-- **fix: clear pane scrollback after respawn to prevent inherited prompt false-positive**
+- **fix: review findings — ROLE_CATEGORY_DEFAULTS, model prompts, tier consistency**
+- **fix: poller auto-follows DUAL child→parent task on completion**
+- **fix: clear-history before respawn-pane to prevent inherited scrollback**
 
 ### Bug Fixes
 
-- **fix: clear pane scrollback after respawn to prevent inherited prompt false-positive**
+- **fix: review findings — ROLE_CATEGORY_DEFAULTS, model prompts, tier consistency**
+- **fix: poller auto-follows DUAL child→parent task on completion**
+- **fix: clear-history before respawn-pane to prevent inherited scrollback**
 
 ### Stats
 
-- **0 PRs merged** | **0 new features** | **1 bug fix** | **0 security/hardening improvements** | **0 other changes**
+- **0 PRs merged** | **0 new features** | **3 bug fixes** | **0 security/hardening improvements** | **0 other changes**

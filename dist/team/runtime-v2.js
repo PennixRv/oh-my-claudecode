@@ -1711,7 +1711,12 @@ export async function processCliWorkerVerdicts(teamName, cwd) {
  * Check all DUAL parent tasks and advance synthesis when all children are terminal.
  * Called from monitorTeamV2 after each task snapshot.
  */
+// Dedup set: prevent same parent task from being synthesized twice in one monitor cycle.
+const _dualSynthesisSeen = new Set();
 async function advanceDualParentSynthesis(teamName, cwd, allTasks) {
+    // Clear seen set each cycle so stalled parents can be retried next cycle.
+    // Within a single cycle, each parent ID is processed at most once.
+    const cycleSeen = new Set();
     const deps = {
         teamName, cwd,
         readTask: async (t, id, c) => {
@@ -1740,6 +1745,9 @@ async function advanceDualParentSynthesis(teamName, cwd, allTasks) {
     // Step 1: dual_in_progress → dual_synthesis (all children terminal)
     const inProgressParents = allTasks.filter(t => t.status === 'dual_in_progress');
     for (const pt of inProgressParents) {
+        if (cycleSeen.has(pt.id))
+            continue;
+        cycleSeen.add(pt.id);
         const dualMeta = pt.metadata?.dual;
         const childIds = dualMeta?.childIds ?? [];
         if (childIds.length < 2)
@@ -1755,6 +1763,9 @@ async function advanceDualParentSynthesis(teamName, cwd, allTasks) {
     // Step 2: dual_synthesis → completed/failed (apply synthesizeDualVerdicts)
     const synthesisParents = allTasks.filter(t => t.status === 'dual_synthesis');
     for (const pt of synthesisParents) {
+        if (cycleSeen.has(pt.id))
+            continue;
+        cycleSeen.add(pt.id);
         const dualMeta = pt.metadata?.dual;
         const childIds = dualMeta?.childIds ?? [];
         const reviseCount = dualMeta?.reviseCount ?? 0;

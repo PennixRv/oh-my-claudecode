@@ -1005,6 +1005,10 @@ async function spawnWorkerInPane(sessionName2, paneId, config) {
     throw new Error(reason);
   }
   try {
+    try {
+      await tmuxExecAsync(["clear-history", "-t", paneId], { timeout: 3e3 });
+    } catch {
+    }
     const sendResult = await tmuxExecAsync([
       "respawn-pane",
       "-k",
@@ -1725,7 +1729,7 @@ function routeTaskToRole(taskSubject, taskDescription, fallbackRole) {
   const isSecurityDomain = SECURITY_DOMAIN_RE.test(combined);
   switch (intent) {
     case "build-fix":
-      return { role: "build-fixer", confidence: "high", reason: "build-fix intent detected" };
+      return { role: "debugger", confidence: "high", reason: "build-fix intent detected \u2192 debugger" };
     case "debug":
       return { role: "debugger", confidence: "high", reason: "debug intent detected" };
     case "docs":
@@ -1738,7 +1742,7 @@ function routeTaskToRole(taskSubject, taskDescription, fallbackRole) {
       if (isSecurityDomain) {
         return { role: "security-reviewer", confidence: "high", reason: "review intent with security domain detected" };
       }
-      return { role: "quality-reviewer", confidence: "high", reason: "review intent detected" };
+      return { role: "code-reviewer", confidence: "high", reason: "review intent detected" };
     case "verification":
       return { role: "test-engineer", confidence: "high", reason: "verification intent detected" };
     case "implementation":
@@ -2063,7 +2067,7 @@ function estimateTaskComplexity(subject, description) {
     crossServiceChange: /cross.?service|multi.?module|multi.?service|跨服务|跨模块/i.test(combined),
     securityDomain: /security|auth|安全|认证|权限|payment|支付|secret|密钥/i.test(combined),
     dataMigration: /migrat|schema.*change|数据迁移|数据库变更/i.test(combined),
-    contextExceeds128K: estimatedTokens > 1e5,
+    contextExceeds128K: estimatedTokens > 1e5 || wordCount > 5e3,
     paymentOrAuthChange: /payment|支付|auth|认证|login|登录/i.test(combined),
     highAmbiguityFix: /可能|也许|不确定|might|maybe|possibly|unclear/i.test(combined),
     executorVerifierSameFamily: false
@@ -2806,17 +2810,17 @@ function buildDefaultConfig() {
       analyst: { model: defaultTierModels.HIGH },
       planner: { model: defaultTierModels.HIGH },
       architect: { model: defaultTierModels.HIGH },
-      debugger: { model: defaultTierModels.MEDIUM },
+      debugger: { model: defaultTierModels.HIGH },
       executor: { model: defaultTierModels.MEDIUM },
       verifier: { model: defaultTierModels.MEDIUM },
-      securityReviewer: { model: defaultTierModels.MEDIUM },
+      securityReviewer: { model: defaultTierModels.HIGH },
       codeReviewer: { model: defaultTierModels.HIGH },
-      testEngineer: { model: defaultTierModels.MEDIUM },
-      designer: { model: defaultTierModels.MEDIUM },
+      testEngineer: { model: defaultTierModels.LOW },
+      designer: { model: defaultTierModels.HIGH },
       writer: { model: defaultTierModels.LOW },
       qaTester: { model: defaultTierModels.MEDIUM },
-      scientist: { model: defaultTierModels.MEDIUM },
-      tracer: { model: defaultTierModels.MEDIUM },
+      scientist: { model: defaultTierModels.HIGH },
+      tracer: { model: defaultTierModels.HIGH },
       gitMaster: { model: defaultTierModels.MEDIUM },
       codeSimplifier: { model: defaultTierModels.HIGH },
       critic: { model: defaultTierModels.HIGH },
@@ -10371,6 +10375,7 @@ async function processCliWorkerVerdicts(teamName, cwd) {
   return results;
 }
 async function advanceDualParentSynthesis(teamName, cwd, allTasks) {
+  const cycleSeen = /* @__PURE__ */ new Set();
   const deps = {
     teamName,
     cwd,
@@ -10400,6 +10405,8 @@ async function advanceDualParentSynthesis(teamName, cwd, allTasks) {
   };
   const inProgressParents = allTasks.filter((t) => t.status === "dual_in_progress");
   for (const pt of inProgressParents) {
+    if (cycleSeen.has(pt.id)) continue;
+    cycleSeen.add(pt.id);
     const dualMeta = pt.metadata?.dual;
     const childIds = dualMeta?.childIds ?? [];
     if (childIds.length < 2) continue;
@@ -10412,6 +10419,8 @@ async function advanceDualParentSynthesis(teamName, cwd, allTasks) {
   }
   const synthesisParents = allTasks.filter((t) => t.status === "dual_synthesis");
   for (const pt of synthesisParents) {
+    if (cycleSeen.has(pt.id)) continue;
+    cycleSeen.add(pt.id);
     const dualMeta = pt.metadata?.dual;
     const childIds = dualMeta?.childIds ?? [];
     const reviseCount = dualMeta?.reviseCount ?? 0;

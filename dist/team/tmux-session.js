@@ -709,6 +709,15 @@ export async function spawnWorkerInPane(sessionName, paneId, config) {
         throw new Error(reason);
     }
     try {
+        // Clear scrollback BEFORE respawn to prevent inherited old prompts
+        // from a parent pane (e.g. DUAL secondary split from primary) from
+        // causing false-positive readiness checks.
+        try {
+            await tmuxExecAsync(['clear-history', '-t', paneId], { timeout: 3000 });
+        }
+        catch {
+            // Non-fatal: some tmux versions may not support clear-history.
+        }
         // Start the worker directly in the pane instead of typing a shell command
         // into an interactive prompt. This avoids command echo and gives the TUI
         // direct ownership of stdin from the first frame.

@@ -51,9 +51,9 @@ describe('role-router', () => {
         });
     });
     describe('routeTaskToRole', () => {
-        it('routes build-fix intent to build-fixer', () => {
+        it('routes build-fix intent to debugger', () => {
             const result = routeTaskToRole('fix build', '', 'executor');
-            expect(result.role).toBe('build-fixer');
+            expect(result.role).toBe('debugger');
             expect(result.confidence).toBe('high');
         });
         it('routes debug intent to debugger', () => {
@@ -81,9 +81,9 @@ describe('role-router', () => {
             expect(result.role).toBe('security-reviewer');
             expect(result.confidence).toBe('high');
         });
-        it('routes review without security domain to quality-reviewer', () => {
+        it('routes review without security domain to code-reviewer', () => {
             const result = routeTaskToRole('review the PR', '', 'executor');
-            expect(result.role).toBe('quality-reviewer');
+            expect(result.role).toBe('code-reviewer');
             expect(result.confidence).toBe('high');
         });
         it('routes verification intent to test-engineer', () => {

@@ -85,7 +85,7 @@ describe('Agent Registry Validation', () => {
         expect(agents.architect?.model).toBe('us.anthropic.claude-opus-4-6-v1:0');
         expect(agents.executor?.model).toBe('us.anthropic.claude-sonnet-4-6-v1:0');
         expect(agents.explore?.model).toBe('us.anthropic.claude-haiku-4-5-v1:0');
-        expect(agents.tracer?.model).toBe('us.anthropic.claude-sonnet-4-6-v1:0');
+        expect(agents.tracer?.model).toBe('us.anthropic.claude-opus-4-6-v1:0');
     });
     test('inherits parent session model when forceInherit is enabled and no configured model exists', async () => {
         process.env.CLAUDE_MODEL = 'claude-3-7-session-parent';
