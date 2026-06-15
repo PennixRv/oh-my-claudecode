@@ -498,11 +498,10 @@ describe('pane readiness startup banners', () => {
     expect(paneHasActiveTask(capture)).toBe(false);
   });
 
-  it('still flags Claude Code v2.1.x mid-task panes via paneHasActiveTask', () => {
-    // Same v2.1.x pane shape with a spinner + "esc to interrupt" — paneLooksReady
-    // sees the prompt and reports ready, but waitForPaneReady's secondary
-    // paneHasActiveTask guard catches the in-flight task and keeps the worker
-    // from being treated as idle.
+  it('correctly rejects mid-task panes via tight tail-only prompt check', () => {
+    // paneLooksReady now only checks the last 3 non-empty lines (not the
+    // entire scrollback). Mid-task panes with old prompts above a spinner
+    // or status bar should NOT appear ready.
     const capture = [
       '❯ Run the migration',
       '·  Thinking…',
@@ -510,7 +509,7 @@ describe('pane readiness startup banners', () => {
       '  ⏵⏵ bypass permissions on (shift+tab to cycle)',
     ].join('\n');
 
-    expect(paneLooksReady(capture)).toBe(true);
+    expect(paneLooksReady(capture)).toBe(false);
     expect(paneHasActiveTask(capture)).toBe(true);
   });
 });
