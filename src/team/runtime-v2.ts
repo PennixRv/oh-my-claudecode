@@ -840,7 +840,7 @@ async function spawnDualWorkerPair(opts: SpawnDualWorkerPairOptions): Promise<{
   const secondaryWorkerIndex = opts.primaryWorkerIndex + 1;
 
   // Create parent task JSON (dual_pending)
-  const parentTaskPath = join(opts.cwd, `.omc/state/team/${opts.teamName}/tasks/task-${opts.taskId}.json`);
+  const parentTaskPath = absPath(opts.cwd, TeamPaths.taskFile(opts.teamName, opts.taskId));
   await mkdir(dirname(parentTaskPath), { recursive: true });
   await writeFile(parentTaskPath, JSON.stringify({
     id: opts.taskId, subject: opts.task.subject, description: opts.task.description,
@@ -851,7 +851,7 @@ async function spawnDualWorkerPair(opts: SpawnDualWorkerPairOptions): Promise<{
 
   // Create child task JSONs (pending — workers will claim them)
   for (const [childId, label] of [[childTaskId1, 'primary'], [childTaskId2, 'secondary']] as const) {
-    const childPath = join(opts.cwd, `.omc/state/team/${opts.teamName}/tasks/task-${childId}.json`);
+    const childPath = absPath(opts.cwd, TeamPaths.taskFile(opts.teamName, childId));
     await writeFile(childPath, JSON.stringify({
       id: childId, subject: `[${label}] ${opts.task.subject}`,
       description: opts.task.description, status: 'pending',
@@ -896,12 +896,12 @@ async function spawnDualWorkerPair(opts: SpawnDualWorkerPairOptions): Promise<{
       teamName: opts.teamName, cwd: opts.cwd,
       readTask: async (t: string, id: string, c: string) => {
         const { readFile } = await import('fs/promises');
-        try { const raw = await readFile(join(c, `.omc/state/team/${t}/tasks/task-${id}.json`), 'utf-8'); return JSON.parse(raw) as TeamTask; } catch { return null; }
+        try { const raw = await readFile(absPath(c, TeamPaths.taskFile(t, id)), 'utf-8'); return JSON.parse(raw) as TeamTask; } catch { return null; }
       },
       withTaskClaimLock: async <T>(_t: string, _id: string, _c: string, fn: () => Promise<T>) => { try { return { ok: true as const, value: await fn() }; } catch { return { ok: false as const }; } },
       normalizeTask: (t: TeamTask) => ({ ...t, version: (t as unknown as Record<string, unknown>).version as number ?? 0 }) as unknown as TeamTaskV2,
       canTransitionTaskStatus: canTransitionTeamTaskStatus,
-      taskFilePath: (t: string, id: string, c: string) => join(c, `.omc/state/team/${t}/tasks/task-${id}.json`),
+      taskFilePath: (t: string, id: string, c: string) => absPath(c, TeamPaths.taskFile(t, id)),
       writeAtomic: async (p: string, d: string) => { const { writeFile } = await import('fs/promises'); await writeFile(p, d, 'utf-8'); },
     };
     await transitionParentTask(opts.taskId, 'dual_pending', 'dual_in_progress', undefined, deps).catch(() => {});
@@ -2182,7 +2182,7 @@ async function advanceDualParentSynthesis(
     readTask: async (t: string, id: string, c: string) => {
       const { readFile } = await import('fs/promises');
       try {
-        const raw = await readFile(join(c, `.omc/state/team/${t}/tasks/task-${id}.json`), 'utf-8');
+        const raw = await readFile(absPath(c, TeamPaths.taskFile(t, id)), 'utf-8');
         return JSON.parse(raw) as TeamTask;
       } catch { return null; }
     },
@@ -2191,7 +2191,7 @@ async function advanceDualParentSynthesis(
     },
     normalizeTask: (t: TeamTask) => ({ ...t, version: (t as unknown as Record<string, unknown>).version as number ?? 0 }) as unknown as TeamTaskV2,
     canTransitionTaskStatus: canTransitionTeamTaskStatus,
-    taskFilePath: (t: string, id: string, c: string) => join(c, `.omc/state/team/${t}/tasks/task-${id}.json`),
+    taskFilePath: (t: string, id: string, c: string) => absPath(c, TeamPaths.taskFile(t, id)),
     writeAtomic: async (p: string, d: string) => { const { writeFile } = await import('fs/promises'); await writeFile(p, d, 'utf-8'); },
   };
 
@@ -2250,7 +2250,7 @@ async function advanceDualParentSynthesis(
       const newChildId2 = String(newBase + 1);
       try {
         for (const [cid, label] of [[newChildId1, 'primary'], [newChildId2, 'secondary']] as const) {
-          const childPath = join(cwd, `.omc/state/team/${teamName}/tasks/task-${cid}.json`);
+          const childPath = absPath(cwd, TeamPaths.taskFile(teamName, cid));
           const { writeFile } = await import('fs/promises');
           await writeFile(childPath, JSON.stringify({
             id: cid, subject: `[${label}] (revise ${reviseCount + 1}) task-${pt.id}`,
