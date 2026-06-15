@@ -1007,7 +1007,11 @@ export function paneLooksReady(captured: string): boolean {
 
   const lastLine = lines[lines.length - 1]!;
   if (paneLineLooksLikeIdlePrompt(lastLine)) return true;
-  return lines.some(paneLineLooksLikeIdlePrompt);
+  // Only check the last 3 non-empty lines for a prompt, not the entire scrollback.
+  // This prevents old prompts inherited from a parent pane (after split-window)
+  // from causing a false-positive readiness check for freshly spawned workers.
+  const tailLines = lines.slice(-3);
+  return tailLines.some(paneLineLooksLikeIdlePrompt);
 }
 
 export interface WaitForPaneReadyOptions {
