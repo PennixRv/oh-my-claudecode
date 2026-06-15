@@ -1,21 +1,17 @@
-# oh-my-claudecode v5.3.5: Bug Fixes
+# oh-my-claudecode v5.3.6: omc-wait-task — inotifywait
 
 ## Release Notes
 
-Release with **3 bug fixes** across **0 merged PRs**.
+Release with **1 new feature** across **0 merged PRs**.
 
 ### Highlights
 
-- **fix: review findings — ROLE_CATEGORY_DEFAULTS, model prompts, tier consistency**
-- **fix: poller auto-follows DUAL child→parent task on completion**
-- **fix: clear-history before respawn-pane to prevent inherited scrollback**
+- **feat: omc-wait-task — inotifywait event-driven waiter with auto team cleanup**
 
-### Bug Fixes
+### New Features
 
-- **fix: review findings — ROLE_CATEGORY_DEFAULTS, model prompts, tier consistency**
-- **fix: poller auto-follows DUAL child→parent task on completion**
-- **fix: clear-history before respawn-pane to prevent inherited scrollback**
+- **feat: omc-wait-task — inotifywait event-driven waiter with auto team cleanup**
 
 ### Stats
 
-- **0 PRs merged** | **0 new features** | **3 bug fixes** | **0 security/hardening improvements** | **0 other changes**
+- **0 PRs merged** | **1 new feature** | **0 bug fixes** | **0 security/hardening improvements** | **0 other changes**
