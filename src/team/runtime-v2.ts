@@ -18,7 +18,7 @@
 
 import { tmuxExecAsync } from '../cli/tmux-utils.js';
 import { dirname, join, resolve } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, watch } from 'fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'fs/promises';
 import { performance } from 'perf_hooks';
 import { TeamPaths, absPath, teamStateRoot } from './state-paths.js';
@@ -2860,4 +2860,136 @@ export async function findActiveTeamsV2(cwd: string): Promise<string[]> {
     }
   }
   return active;
+}
+
+// ---------------------------------------------------------------------------
+// waitForTeamCompletion — pure TS event-driven team lifecycle
+// ---------------------------------------------------------------------------
+
+export interface WaitForTeamOptions {
+  teamName: string;
+  cwd: string;
+  /** Task ID to wait for. Default: '1' (root/parent task). */
+  taskId?: string;
+  /** Total timeout in ms. Default: 30 min. */
+  timeoutMs?: number;
+  /** Poll fallback interval in ms. Default: 5s. */
+  fallbackMs?: number;
+  /** AbortSignal for cancellation. */
+  signal?: AbortSignal;
+}
+
+export interface WaitForTeamResult {
+  status: 'completed' | 'failed' | 'timeout';
+  taskId: string;
+  result?: string;
+  error?: string;
+}
+
+/**
+ * Wait for a team task to reach terminal state, then auto-shutdown.
+ * Uses fs.watch (event-driven, <1s latency) with setInterval fallback.
+ * Calls monitorTeamV2() internally to drive DUAL synthesis.
+ */
+export async function waitForTeamCompletion(
+  opts: WaitForTeamOptions,
+): Promise<WaitForTeamResult> {
+  const sanitized = sanitizeTeamName(opts.teamName);
+  const taskId = opts.taskId ?? '1';
+  const taskDir = absPath(opts.cwd, TeamPaths.tasks(sanitized));
+  const taskFile = absPath(opts.cwd, TeamPaths.taskFile(sanitized, taskId));
+  const deadline = Date.now() + (opts.timeoutMs ?? 30 * 60 * 1000);
+  const fallbackMs = opts.fallbackMs ?? 5000;
+  let pendingCheck = false;
+  let resolved = false;
+  let watcher: ReturnType<typeof watch> | undefined;
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
+
+  const logEventFailure = createSwallowedErrorLogger(
+    'team.runtime-v2.waitForTeamCompletion',
+  );
+
+  const cleanup = (): void => {
+    watcher?.close();
+    watcher = undefined;
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = undefined; }
+    opts.signal?.removeEventListener('abort', onAbort);
+  };
+
+  const finish = async (status: 'completed' | 'failed' | 'timeout'): Promise<WaitForTeamResult> => {
+    if (resolved) return { status, taskId };
+    resolved = true;
+    cleanup();
+
+    const result: WaitForTeamResult = { status, taskId };
+    try {
+      const raw = await readFile(taskFile, 'utf-8');
+      const t = JSON.parse(raw) as TeamTask;
+      result.result = t.result;
+      result.error = t.error;
+    } catch { /* best effort */ }
+
+    // Auto-shutdown
+    try {
+      await shutdownTeamV2(sanitized, opts.cwd, { force: status !== 'completed' });
+    } catch (err) {
+      logEventFailure(err);
+    }
+
+    return result;
+  };
+
+  const checkOnce = async (): Promise<boolean> => {
+    const snap = await monitorTeamV2(sanitized, opts.cwd);
+    if (!snap) return false;
+    if (snap.allTasksTerminal) return true;
+    // Also check the specific task file directly as a fast path
+    try {
+      const raw = await readFile(taskFile, 'utf-8');
+      const task = JSON.parse(raw) as TeamTask;
+      if (task.status === 'completed' || task.status === 'failed') return true;
+    } catch { /* task file may not exist yet */ }
+    return false;
+  };
+
+  const onAbort = (): void => {
+    finish('timeout').catch(logEventFailure);
+  };
+
+  opts.signal?.addEventListener('abort', onAbort, { once: true });
+
+  // ---- 主路径：fs.watch ----
+  if (typeof watch === 'function') {
+    try {
+      watcher = watch(taskDir, (_event, filename) => {
+        if (filename && filename.startsWith('task-')) {
+          pendingCheck = true;
+        }
+      });
+    } catch {
+      // fs.watch unavailable → fall through to poll-only
+    }
+  }
+
+  // ---- poll loop（主路径 + 降级共用） ----
+  return new Promise((resolve) => {
+    pollTimer = setInterval(async () => {
+      if (Date.now() > deadline) {
+        resolve(await finish('timeout'));
+        return;
+      }
+      // Debounce: if fs.watch hasn't signaled and we're not on fallback-only, skip
+      if (!pendingCheck && watcher && !resolved) return;
+      pendingCheck = false;
+
+      try {
+        const terminal = await checkOnce();
+        if (terminal) {
+          resolve(await finish('completed'));
+        }
+      } catch (err) {
+        logEventFailure(err);
+      }
+    }, fallbackMs);
+  });
 }
