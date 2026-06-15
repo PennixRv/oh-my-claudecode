@@ -21,16 +21,20 @@ resolve_team_state_dir() {
     return 0
   fi
 
+  # Search from PROJECT_DIR and parent directories. Use -maxdepth 6 to limit scope.
+  # State dirs can be under PROJECT_DIR/.omc/ or under a parent .omc/ (e.g. ~/devel/.omc/)
+  local search_roots="${PROJECT_DIR} ${HOME}/devel ${HOME}"
   local found
-  found=$(find "$PROJECT_DIR" -path "*/.omc/state/team/${TEAM}/tasks/task-${TASK_ID}.json" -print 2>/dev/null | head -n 1)
+  for root in $search_roots; do
+    found=$(find "$root" -maxdepth 7 -path "*/.omc/state/team/${TEAM}/manifest.json" -print 2>/dev/null | head -n 1)
+    [ -n "$found" ] && break
+    found=$(find "$root" -maxdepth 7 -path "*/.omc/state/team/${TEAM}/config.json" -print 2>/dev/null | head -n 1)
+    [ -n "$found" ] && break
+    found=$(find "$root" -maxdepth 7 -path "*/.omc/state/team/${TEAM}/tasks/task-${TASK_ID}.json" -print 2>/dev/null | head -n 1)
+    [ -n "$found" ] && break
+  done
   if [ -n "$found" ]; then
     dirname "$(dirname "$found")"
-    return 0
-  fi
-
-  found=$(find "$PROJECT_DIR" -path "*/.omc/state/team/${TEAM}/manifest.json" -print 2>/dev/null | head -n 1)
-  if [ -n "$found" ]; then
-    dirname "$found"
     return 0
   fi
 
@@ -103,7 +107,6 @@ while true; do
             [ -f "$msg_file" ] || continue
             msg_id=$(jq -r '.message_id // empty' "$msg_file" 2>/dev/null)
             [ -z "$msg_id" ] && continue
-            # Skip already seen
             grep -qxF "$msg_id" "$SEEN_MSGS" 2>/dev/null && continue
             from=$(jq -r '.from_worker // "?"' "$msg_file" 2>/dev/null)
             body=$(jq -r '.body // ""' "$msg_file" 2>/dev/null | head -c 120)
@@ -112,19 +115,28 @@ while true; do
           done
         fi
       fi
-      # Merge mailbox cache into POLL_FILE
       if [ -f "$MAILBOX_CACHE" ] && [ -s "$MAILBOX_CACHE" ]; then
         cat "$MAILBOX_CACHE" >> "$POLL_FILE"
       fi
     fi
 
-    # 终端态 → 退出
+    # 终端态 → follow DUAL parent if this is a child task
     if [ "$status" = "completed" ] || [ "$status" = "failed" ]; then
       result=$(jq -r '(.result // "")[:500]' "$TASK_FILE" 2>/dev/null || echo "")
       error=$(jq -r '(.error // "")[:200]' "$TASK_FILE" 2>/dev/null || echo "")
       body="${result:-$error}"
       echo "$(date +%H:%M:%S) TASK_${status^^} | ${body}" >> "$POLL_FILE"
       echo "$(date +%H:%M:%S) 完整报告: ${REPORT_DIR}/${TEAM}-task${TASK_ID}-*.md" >> "$POLL_FILE"
+
+      # Check if this is a DUAL child task — if so, switch to polling the parent
+      PARENT_ID=$(jq -r '.parentTaskId // empty' "$TASK_FILE" 2>/dev/null)
+      if [ -n "$PARENT_ID" ]; then
+        echo "$(date +%H:%M:%S) DUAL child complete, switching to parent task-${PARENT_ID}" >> "$POLL_FILE"
+        TASK_ID="$PARENT_ID"
+        TASK_FILE="${TEAM_STATE_DIR}/tasks/task-${TASK_ID}.json"
+        POLL_INTERVAL=5  # poll faster for synthesis
+        continue
+      fi
       break
     fi
 
@@ -136,7 +148,6 @@ while true; do
       if [ "$new_status" = "completed" ] || [ "$new_status" = "failed" ]; then
         continue
       fi
-      # If still dual_synthesis after 3s, check again in 3s then continue polling
       sleep 3
       continue
     fi
@@ -169,11 +180,9 @@ while true; do
           WORKER_ALIVE=0
 
           if [ -n "$OWNER" ] && [ "$OWNER" != "null" ]; then
-            # Layer 1: heartbeat / status files
             if worker_alive_from_state_files "$OWNER"; then
               WORKER_ALIVE=1
               LIVENESS_SOURCE="state-files"
-            # Layer 2: tmux pane process liveness (handles Codex workers without heartbeat)
             elif worker_alive_from_tmux "$OWNER"; then
               WORKER_ALIVE=1
               LIVENESS_SOURCE="tmux-pane"
@@ -182,8 +191,8 @@ while true; do
 
           if [ $WORKER_ALIVE -eq 1 ]; then
             echo "$(date +%H:%M:%S) task-${TASK_ID}: ${status} unchanged for ${MAX_IDLE_MINUTES}min but worker alive (${LIVENESS_SOURCE}) — not giving up" >> "$POLL_FILE"
-            LAST_CHANGE=$(date +%s)  # reset timer
-            POLL_INTERVAL=20         # back off
+            LAST_CHANGE=$(date +%s)
+            POLL_INTERVAL=20
           else
             echo "$(date +%H:%M:%S) GIVING_UP | task-${TASK_ID} stuck at ${status} for ${MAX_IDLE_MINUTES}min (no heartbeat and no live tmux pane)" >> "$POLL_FILE"
             break
@@ -193,13 +202,11 @@ while true; do
     esac
   else
     # task file gone → team state dir likely deleted by shutdown
-    # Check reports for evidence of completion before reporting failure
     REPORT_GLOB="${REPORT_DIR}/${TEAM}-task${TASK_ID}-*.md"
     FOUND_REPORT=""
     if compgen -G "$REPORT_GLOB" > /dev/null 2>&1; then
       FOUND_REPORT=$(ls -t $REPORT_GLOB 2>/dev/null | head -1)
     fi
-    # Also check for child task reports (DUAL mode polls child tasks)
     if [ -z "$FOUND_REPORT" ]; then
       CHILD_GLOB="${REPORT_DIR}/${TEAM}-task*-*.md"
       if compgen -G "$CHILD_GLOB" > /dev/null 2>&1; then
@@ -217,5 +224,4 @@ while true; do
   sleep $POLL_INTERVAL
 done
 
-# Cleanup mailbox tracking files on exit
 rm -f "$MAILBOX_CACHE" "$SEEN_MSGS" 2>/dev/null
