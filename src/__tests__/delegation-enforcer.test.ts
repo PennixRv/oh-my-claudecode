@@ -109,7 +109,7 @@ describe('delegation-enforcer', () => {
       const result = enforceModel(input);
 
       expect(result.injected).toBe(true);
-      expect(result.modifiedInput.model).toBe('sonnet'); // debugger defaults to claude-sonnet-4-6
+      expect(result.modifiedInput.model).toBe('opus'); // debugger defaults to opus-tier (HIGH)
     });
 
     it('rewrites deprecated aliases to canonical agent names before injecting model', () => {
@@ -123,7 +123,7 @@ describe('delegation-enforcer', () => {
 
       expect(result.injected).toBe(true);
       expect(result.modifiedInput.subagent_type).toBe('oh-my-claudecode:debugger');
-      expect(result.modifiedInput.model).toBe('sonnet');
+      expect(result.modifiedInput.model).toBe('opus');
     });
 
     it('throws error for unknown agent type', () => {
@@ -174,11 +174,11 @@ describe('delegation-enforcer', () => {
         { agent: 'architect', expectedModel: 'opus' },
         { agent: 'executor', expectedModel: 'sonnet' },
         { agent: 'explore', expectedModel: 'haiku' },
-        { agent: 'designer', expectedModel: 'sonnet' },
-        { agent: 'debugger', expectedModel: 'sonnet' },
-        { agent: 'verifier', expectedModel: 'sonnet' },
+        { agent: 'designer', expectedModel: 'opus' },
+        { agent: 'debugger', expectedModel: 'opus' },
+        { agent: 'verifier', expectedModel: 'opus' },
         { agent: 'code-reviewer', expectedModel: 'opus' },
-        { agent: 'test-engineer', expectedModel: 'sonnet' }
+        { agent: 'test-engineer', expectedModel: 'haiku' }
       ];
 
       for (const testCase of testCases) {
@@ -318,7 +318,7 @@ describe('delegation-enforcer', () => {
       expect(getModelForAgent('executor')).toBe('sonnet');
       expect(getModelForAgent('debugger')).toBe('opus');
       expect(getModelForAgent('architect')).toBe('opus');
-      expect(getModelForAgent('build-fixer')).toBe('sonnet');
+      expect(getModelForAgent('build-fixer')).toBe('opus');
     });
 
     it('throws error for unknown agent', () => {
