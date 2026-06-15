@@ -855,6 +855,16 @@ export async function spawnWorkerInPane(
       `worker start respawn-pane session=${sessionName} pane=${paneId} ` +
       `worker=${config.workerName} cmdSha=${fingerprint} sendStatus=0 stderr=${JSON.stringify(sendResult.stderr.trim())}`,
     );
+
+    // Clear the pane's scrollback history so that readiness checks only see
+    // output from the NEW process, not inherited prompts from a parent pane.
+    // This prevents false-positive readiness in DUAL mode where secondary
+    // workers split from an already-active primary pane.
+    try {
+      await tmuxExecAsync(['clear-history', '-t', paneId], { timeout: 3000 });
+    } catch {
+      // Non-fatal: clear-history is best-effort. Some tmux versions may not support it.
+    }
   } catch (error) {
     logWorkerSpawnDiagnostic(
       `worker start respawn-pane failed session=${sessionName} pane=${paneId} ` +
@@ -1007,11 +1017,7 @@ export function paneLooksReady(captured: string): boolean {
 
   const lastLine = lines[lines.length - 1]!;
   if (paneLineLooksLikeIdlePrompt(lastLine)) return true;
-  // Only check the last 3 non-empty lines for a prompt, not the entire scrollback.
-  // This prevents old prompts inherited from a parent pane (after split-window)
-  // from causing a false-positive readiness check for freshly spawned workers.
-  const tailLines = lines.slice(-3);
-  return tailLines.some(paneLineLooksLikeIdlePrompt);
+  return lines.some(paneLineLooksLikeIdlePrompt);
 }
 
 export interface WaitForPaneReadyOptions {
