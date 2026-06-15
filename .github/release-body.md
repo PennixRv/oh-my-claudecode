@@ -1,27 +1,25 @@
-# oh-my-claudecode v5.3.1: Bug Fixes
+# oh-my-claudecode v5.3.3: Bug Fixes
 
 ## Release Notes
 
-Release with **2 bug fixes** across **0 merged PRs**.
+Release with **1 bug fix** across **0 merged PRs**.
 
 ### Highlights
 
-- **fix: review findings — tier consistency, canonical roles, synthesis dedup, gpt-5.4 default**
-- **fix: update default Codex model from gpt-5.3-codex to gpt-5.4**
+- **fix: tighten paneLooksReady — only check last 3 lines for prompt**
 
 ### Bug Fixes
 
-- **fix: review findings — tier consistency, canonical roles, synthesis dedup, gpt-5.4 default**
-- **fix: update default Codex model from gpt-5.3-codex to gpt-5.4**
+- **fix: tighten paneLooksReady — only check last 3 lines for prompt**
 
 ### Stats
 
-- **0 PRs merged** | **0 new features** | **2 bug fixes** | **0 security/hardening improvements** | **0 other changes**
+- **0 PRs merged** | **0 new features** | **1 bug fix** | **0 security/hardening improvements** | **0 other changes**
 
 ### Install / Update
 
 ```bash
-npm install -g oh-my-claude-pennix@5.3.1
+npm install -g oh-my-claude-pennix@5.3.3
 ```
 
 Or reinstall the plugin:
@@ -29,4 +27,4 @@ Or reinstall the plugin:
 claude /install-plugin oh-my-claudecode
 ```
 
-**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-claudecode/compare/v5.3.0...v5.3.1
+**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-claudecode/compare/v5.3.1...v5.3.3

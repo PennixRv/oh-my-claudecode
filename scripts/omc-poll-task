@@ -1,0 +1,221 @@
+#!/bin/bash
+# omc-poll-task <team> <task-id> [project-dir] — 轮询单个 OMC worker 任务直到完成
+set -o pipefail
+TEAM="$1"
+TASK_ID="$2"
+PROJECT_DIR="${3:-$PWD}"
+POLL_FILE="/tmp/omc-poll-${TEAM}-task${TASK_ID}.txt"
+MAX_IDLE_MINUTES="${OMC_POLL_MAX_IDLE_MINUTES:-60}"
+LAST_CHANGE=0
+POLL_INTERVAL="${OMC_POLL_INTERVAL:-10}"
+MAILBOX_CACHE="/tmp/omc-mailbox-${TEAM}-task${TASK_ID}.txt"
+SEEN_MSGS="/tmp/omc-mailbox-seen-${TEAM}-task${TASK_ID}.txt"
+
+# ---- resolve real team state dir (Bug 1: State Dir Mismatch) ----
+DEFAULT_STATE_DIR="${PROJECT_DIR}/.omc/state/team/${TEAM}"
+
+resolve_team_state_dir() {
+  local direct="${DEFAULT_STATE_DIR}"
+  if [ -f "${direct}/tasks/task-${TASK_ID}.json" ] || [ -f "${direct}/manifest.json" ] || [ -f "${direct}/config.json" ]; then
+    printf '%s\n' "$direct"
+    return 0
+  fi
+
+  local found
+  found=$(find "$PROJECT_DIR" -path "*/.omc/state/team/${TEAM}/tasks/task-${TASK_ID}.json" -print 2>/dev/null | head -n 1)
+  if [ -n "$found" ]; then
+    dirname "$(dirname "$found")"
+    return 0
+  fi
+
+  found=$(find "$PROJECT_DIR" -path "*/.omc/state/team/${TEAM}/manifest.json" -print 2>/dev/null | head -n 1)
+  if [ -n "$found" ]; then
+    dirname "$found"
+    return 0
+  fi
+
+  return 1
+}
+
+TEAM_STATE_DIR="$(resolve_team_state_dir || echo "$DEFAULT_STATE_DIR")"
+TASK_FILE="${TEAM_STATE_DIR}/tasks/task-${TASK_ID}.json"
+OMC_ROOT="$(dirname "$(dirname "$(dirname "$TEAM_STATE_DIR")")")"
+REPORT_DIR="${OMC_ROOT}/reports/auto"
+echo "$(date +%H:%M:%S) poller start: team=${TEAM} task=${TASK_ID} state_dir=${TEAM_STATE_DIR}" > "$POLL_FILE"
+
+# ---- worker liveness helpers (Bug 2: Heartbeat False Negative) ----
+
+worker_alive_from_state_files() {
+  local owner="$1"
+  local worker_dir="${TEAM_STATE_DIR}/workers/${owner}"
+  local hb_file="${worker_dir}/heartbeat.json"
+  local status_file="${worker_dir}/status.json"
+
+  if [ -f "$hb_file" ]; then
+    local hb_age
+    hb_age=$(($(date +%s) - $(stat -c %Y "$hb_file" 2>/dev/null || echo 0)))
+    [ "$hb_age" -lt 120 ] && return 0
+  fi
+
+  if [ -f "$status_file" ]; then
+    local st_age
+    st_age=$(($(date +%s) - $(stat -c %Y "$status_file" 2>/dev/null || echo 0)))
+    [ "$st_age" -lt 120 ] && return 0
+  fi
+
+  return 1
+}
+
+worker_alive_from_tmux() {
+  local owner="$1"
+  local meta_file="${TEAM_STATE_DIR}/manifest.json"
+  [ -f "$meta_file" ] || meta_file="${TEAM_STATE_DIR}/config.json"
+  [ -f "$meta_file" ] || return 1
+
+  local pane_id
+  pane_id=$(jq -r --arg owner "$owner" '.workers[]? | select(.name == $owner) | .pane_id // empty' "$meta_file" 2>/dev/null)
+  [ -n "$pane_id" ] || return 1
+
+  local pane_dead
+  pane_dead=$(tmux display-message -t "$pane_id" -p '#{pane_dead}' 2>/dev/null || echo 1)
+  [ "$pane_dead" = "0" ] || return 1
+
+  local pane_pid
+  pane_pid=$(tmux display-message -t "$pane_id" -p '#{pane_pid}' 2>/dev/null || echo "")
+  [ -n "$pane_pid" ] && kill -0 "$pane_pid" 2>/dev/null
+}
+
+# ---- main poll loop ----
+
+while true; do
+  if [ -f "$TASK_FILE" ]; then
+    status=$(jq -r '.status' "$TASK_FILE" 2>/dev/null || echo "unknown")
+    subject=$(jq -r '.subject[:60]' "$TASK_FILE" 2>/dev/null || echo "")
+    echo "$(date +%H:%M:%S) task-${TASK_ID}: ${status} | ${subject}" > "$POLL_FILE"
+
+    # ---- optional mailbox polling (Issue 3: Midterm Messages) ----
+    if [ "${OMC_POLL_READ_MAILBOX:-0}" = "1" ]; then
+      OWNER=$(jq -r '.owner // ""' "$TASK_FILE" 2>/dev/null)
+      if [ -n "$OWNER" ] && [ "$OWNER" != "null" ]; then
+        MAILBOX_DIR="${TEAM_STATE_DIR}/workers/${OWNER}/mailbox"
+        if [ -d "$MAILBOX_DIR" ]; then
+          for msg_file in "$MAILBOX_DIR"/*.json; do
+            [ -f "$msg_file" ] || continue
+            msg_id=$(jq -r '.message_id // empty' "$msg_file" 2>/dev/null)
+            [ -z "$msg_id" ] && continue
+            # Skip already seen
+            grep -qxF "$msg_id" "$SEEN_MSGS" 2>/dev/null && continue
+            from=$(jq -r '.from_worker // "?"' "$msg_file" 2>/dev/null)
+            body=$(jq -r '.body // ""' "$msg_file" 2>/dev/null | head -c 120)
+            echo "$msg_id" >> "$SEEN_MSGS"
+            echo "$(date +%H:%M:%S) [MIDTERM] ${from}: ${body}" >> "$MAILBOX_CACHE"
+          done
+        fi
+      fi
+      # Merge mailbox cache into POLL_FILE
+      if [ -f "$MAILBOX_CACHE" ] && [ -s "$MAILBOX_CACHE" ]; then
+        cat "$MAILBOX_CACHE" >> "$POLL_FILE"
+      fi
+    fi
+
+    # 终端态 → 退出
+    if [ "$status" = "completed" ] || [ "$status" = "failed" ]; then
+      result=$(jq -r '(.result // "")[:500]' "$TASK_FILE" 2>/dev/null || echo "")
+      error=$(jq -r '(.error // "")[:200]' "$TASK_FILE" 2>/dev/null || echo "")
+      body="${result:-$error}"
+      echo "$(date +%H:%M:%S) TASK_${status^^} | ${body}" >> "$POLL_FILE"
+      echo "$(date +%H:%M:%S) 完整报告: ${REPORT_DIR}/${TEAM}-task${TASK_ID}-*.md" >> "$POLL_FILE"
+      break
+    fi
+
+    # DUAL: parent task reached dual_synthesis — poll more aggressively
+    if [ "$status" = "dual_synthesis" ]; then
+      echo "$(date +%H:%M:%S) DUAL parent task-${TASK_ID}: dual_synthesis — children done, awaiting synthesis" >> "$POLL_FILE"
+      sleep 3
+      new_status=$(jq -r '.status // ""' "$TASK_FILE" 2>/dev/null || echo "")
+      if [ "$new_status" = "completed" ] || [ "$new_status" = "failed" ]; then
+        continue
+      fi
+      # If still dual_synthesis after 3s, check again in 3s then continue polling
+      sleep 3
+      continue
+    fi
+
+    # DUAL: parent task idle but children may be working — check children instead
+    if [ "$status" = "dual_pending" ] || [ "$status" = "dual_in_progress" ]; then
+      child_ids=$(jq -r '.metadata.dual.childIds[]? // empty' "$TASK_FILE" 2>/dev/null)
+      if [ -n "$child_ids" ]; then
+        child_summary=""
+        for cid in $child_ids; do
+          child_file="${TEAM_STATE_DIR}/tasks/task-${cid}.json"
+          child_status=$(jq -r '.status // "unknown"' "$child_file" 2>/dev/null || echo "unknown")
+          child_summary="${child_summary} child-${cid}=${child_status}"
+        done
+        echo "$(date +%H:%M:%S) DUAL parent task-${TASK_ID}: ${status} |${child_summary}" >> "$POLL_FILE"
+      fi
+    fi
+
+    # 检测 task 是否卡在非终态过久 → 双层判活
+    current_mtime=$(stat -c %Y "$TASK_FILE" 2>/dev/null || echo 0)
+    if [ "$current_mtime" != "$LAST_CHANGE" ]; then
+      LAST_CHANGE="$current_mtime"
+    fi
+    idle_seconds=$(($(date +%s) - LAST_CHANGE))
+    case "$status" in
+      pending|in_progress|blocked|dual_pending|dual_in_progress|dual_synthesis)
+        if [ $idle_seconds -gt $((MAX_IDLE_MINUTES * 60)) ]; then
+          OWNER=$(jq -r '.owner // ""' "$TASK_FILE" 2>/dev/null)
+          LIVENESS_SOURCE="none"
+          WORKER_ALIVE=0
+
+          if [ -n "$OWNER" ] && [ "$OWNER" != "null" ]; then
+            # Layer 1: heartbeat / status files
+            if worker_alive_from_state_files "$OWNER"; then
+              WORKER_ALIVE=1
+              LIVENESS_SOURCE="state-files"
+            # Layer 2: tmux pane process liveness (handles Codex workers without heartbeat)
+            elif worker_alive_from_tmux "$OWNER"; then
+              WORKER_ALIVE=1
+              LIVENESS_SOURCE="tmux-pane"
+            fi
+          fi
+
+          if [ $WORKER_ALIVE -eq 1 ]; then
+            echo "$(date +%H:%M:%S) task-${TASK_ID}: ${status} unchanged for ${MAX_IDLE_MINUTES}min but worker alive (${LIVENESS_SOURCE}) — not giving up" >> "$POLL_FILE"
+            LAST_CHANGE=$(date +%s)  # reset timer
+            POLL_INTERVAL=20         # back off
+          else
+            echo "$(date +%H:%M:%S) GIVING_UP | task-${TASK_ID} stuck at ${status} for ${MAX_IDLE_MINUTES}min (no heartbeat and no live tmux pane)" >> "$POLL_FILE"
+            break
+          fi
+        fi
+        ;;
+    esac
+  else
+    # task file gone → team state dir likely deleted by shutdown
+    # Check reports for evidence of completion before reporting failure
+    REPORT_GLOB="${REPORT_DIR}/${TEAM}-task${TASK_ID}-*.md"
+    FOUND_REPORT=""
+    if compgen -G "$REPORT_GLOB" > /dev/null 2>&1; then
+      FOUND_REPORT=$(ls -t $REPORT_GLOB 2>/dev/null | head -1)
+    fi
+    # Also check for child task reports (DUAL mode polls child tasks)
+    if [ -z "$FOUND_REPORT" ]; then
+      CHILD_GLOB="${REPORT_DIR}/${TEAM}-task*-*.md"
+      if compgen -G "$CHILD_GLOB" > /dev/null 2>&1; then
+        FOUND_REPORT=$(ls -t $CHILD_GLOB 2>/dev/null | head -1)
+      fi
+    fi
+    if [ -n "$FOUND_REPORT" ]; then
+      echo "$(date +%H:%M:%S) task-${TASK_ID}: state dir gone but report found — team completed: ${FOUND_REPORT}" > "$POLL_FILE"
+      echo "$(date +%H:%M:%S) TASK_COMPLETED (inferred from report)" >> "$POLL_FILE"
+    else
+      echo "$(date +%H:%M:%S) task-${TASK_ID}: state dir gone (team shutdown), no report found" > "$POLL_FILE"
+    fi
+    break
+  fi
+  sleep $POLL_INTERVAL
+done
+
+# Cleanup mailbox tracking files on exit
+rm -f "$MAILBOX_CACHE" "$SEEN_MSGS" 2>/dev/null
