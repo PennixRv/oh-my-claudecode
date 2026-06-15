@@ -1285,7 +1285,7 @@ var CLAUDE_FAMILY_HIGH_VARIANTS = {
   OPUS: `${CLAUDE_FAMILY_DEFAULTS.OPUS}-high`
 };
 var BUILTIN_EXTERNAL_MODEL_DEFAULTS = {
-  codexModel: "gpt-5.3-codex",
+  codexModel: "gpt-5.4",
   geminiModel: "gemini-3.1-pro-preview"
 };
 function getBuiltinExternalDefaultModel(provider) {

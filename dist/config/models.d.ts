@@ -11,7 +11,7 @@ export declare const BUILTIN_TIER_MODEL_DEFAULTS: Record<ModelTier, string>;
 export declare const CLAUDE_FAMILY_HIGH_VARIANTS: Record<ClaudeModelFamily, string>;
 /** Built-in defaults for external provider models */
 export declare const BUILTIN_EXTERNAL_MODEL_DEFAULTS: {
-    readonly codexModel: "gpt-5.3-codex";
+    readonly codexModel: "gpt-5.4";
     readonly geminiModel: "gemini-3.1-pro-preview";
 };
 export declare function resolveInheritedModelFromEnv(): string | undefined;

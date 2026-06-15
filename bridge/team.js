@@ -3763,7 +3763,7 @@ var init_models = __esm({
       OPUS: `${CLAUDE_FAMILY_DEFAULTS.OPUS}-high`
     };
     BUILTIN_EXTERNAL_MODEL_DEFAULTS = {
-      codexModel: "gpt-5.3-codex",
+      codexModel: "gpt-5.4",
       geminiModel: "gemini-3.1-pro-preview"
     };
   }
