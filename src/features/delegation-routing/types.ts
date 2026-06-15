@@ -54,8 +54,11 @@ export const ROLE_CATEGORY_DEFAULTS: Record<string, string> = {
   'qa-tester': 'qa-tester',
   debugger: 'debugger',
   scientist: 'scientist',
-  'git-master': 'executor',
-  'code-simplifier': 'executor',
+  'git-master': 'git-master',
+  'code-simplifier': 'code-simplifier',
+  verifier: 'verifier',
+  tracer: 'tracer',
+  'test-engineer': 'test-engineer',
 };
 
 /**

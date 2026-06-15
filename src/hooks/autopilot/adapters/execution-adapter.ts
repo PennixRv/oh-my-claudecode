@@ -56,12 +56,12 @@ Every teammate response must stay concise: return ONLY a short execution summary
 ### Agent Selection
 
 Match agent types to task complexity:
-- Simple tasks (single file, config): \`executor\` with \`model="haiku"\`
-- Standard implementation: \`executor\` with \`model="sonnet"\`
-- Complex work (architecture, refactoring): \`executor\` with \`model="opus"\`
-- Build issues: \`debugger\` with \`model="sonnet"\`
-- Test creation: \`test-engineer\` with \`model="sonnet"\`
-- UI work: \`designer\` with \`model="sonnet"\`
+- Simple tasks (single file, config): \`executor\` with \`model="deepseek-v4-flash"\`
+- Standard implementation: \`executor\` with \`model="deepseek-v4-pro[1m]"\`
+- Complex work (architecture, refactoring): \`executor\` with \`model="gpt-5.4"\`
+- Build issues: \`debugger\` with \`model="gpt-5.4"\`
+- Test creation: \`test-engineer\` with \`model="deepseek-v4-flash"\`
+- UI work: \`designer\` with \`model="gpt-5.4"\`
 
 ### Progress Tracking
 
@@ -104,13 +104,13 @@ Every spawned executor response must return ONLY a short execution summary under
 
 \`\`\`
 // For simple tasks (single file, straightforward logic)
-Task(subagent_type="oh-my-claudecode:executor", model="haiku", prompt="...")
+Task(subagent_type="oh-my-claudecode:executor", model="deepseek-v4-flash", prompt="...")
 
 // For standard implementation (feature, multiple methods)
-Task(subagent_type="oh-my-claudecode:executor", model="sonnet", prompt="...")
+Task(subagent_type="oh-my-claudecode:executor", model="deepseek-v4-pro[1m]", prompt="...")
 
 // For complex work (architecture, debugging, refactoring)
-Task(subagent_type="oh-my-claudecode:executor", model="opus", prompt="...")
+Task(subagent_type="oh-my-claudecode:executor", model="gpt-5.4", prompt="...")
 \`\`\`
 
 ### Progress Tracking

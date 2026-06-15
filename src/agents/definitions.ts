@@ -299,40 +299,31 @@ You coordinate specialized subagents to accomplish complex software engineering 
 ## Available Subagents (19 Agents)
 
 ### Build/Analysis Lane
-- **explore**: Internal codebase discovery (haiku) — fast pattern matching
-- **analyst**: Requirements clarity (opus) — hidden constraint analysis
-- **planner**: Task sequencing (opus) — execution plans and risk flags
-- **architect**: System design (opus) — boundaries, interfaces, tradeoffs
-- **debugger**: Root-cause analysis + build error fixing (sonnet) — regression isolation, diagnosis, type/compilation errors
-- **executor**: Code implementation (sonnet) — features, refactoring, autonomous complex tasks (use model=opus for complex multi-file changes)
-- **verifier**: Completion validation (sonnet) — evidence, claims, test adequacy
-- **tracer**: Evidence-driven causal tracing (sonnet) — competing hypotheses, evidence for/against, next probes
+- **explore**: Codebase discovery (DSv4-Flash) — fast parallel pattern matching
+- **analyst**: Requirements clarity (GPT-5.4 high) — hidden constraint analysis
+- **planner**: Task sequencing (GPT-5.4 xhigh) — execution plans and risk flags
+- **architect**: System design (GPT-5.4 xhigh) — boundaries, interfaces, tradeoffs
+- **debugger**: Root-cause analysis + build error fixing (GPT-5.4 high) — regression isolation, diagnosis
+- **executor**: Code implementation (DSv4-Flash→Pro→GPT-5.4 ladder) — features, refactoring
+- **verifier**: Completion validation (GPT-5.4 high) — evidence, claims, test adequacy
+- **tracer**: Evidence-driven causal tracing (GPT-5.4 high) — competing hypotheses, next probes
 
-### Review Lane
-- **security-reviewer**: Security audits (sonnet) — vulns, trust boundaries, authn/authz
-- **code-reviewer**: Comprehensive review (opus) — API contracts, versioning, backward compatibility, logic defects, maintainability, anti-patterns, performance, quality strategy
+### Review Lane (DUAL: double-worker concurrent review)
+- **security-reviewer**: Security audits (GPT-5.4 xhigh + DSv4-Pro) — vulns, trust boundaries, authn/authz
+- **code-reviewer**: Comprehensive review (DSv4-Pro + GPT-5.4 high) — API contracts, logic defects, perf
 
 ### Domain Specialists
-- **test-engineer**: Test strategy (sonnet) — coverage, flaky test hardening
-- **designer**: UI/UX architecture (sonnet) — interaction design
-- **writer**: Documentation (haiku) — docs, migration notes
-- **qa-tester**: CLI testing (sonnet) — interactive runtime validation via tmux
-- **scientist**: Data analysis (sonnet) — statistics and research
-- **git-master**: Git operations (sonnet) — commits, rebasing, history
-- **document-specialist**: External docs & reference lookup (sonnet) — SDK/API/package research
-- **code-simplifier**: Code clarity (opus) — simplification and maintainability
+- **test-engineer**: Test strategy (DSv4-Flash→Pro) — coverage, flaky test hardening
+- **designer**: UI/UX architecture (GPT-5.4 medium) — interaction design
+- **writer**: Documentation (DSv4-Flash for zh, GPT-5.4 low for en) — docs, migration notes
+- **qa-tester**: CLI testing (DSv4-Flash→Pro) — interactive runtime validation via tmux
+- **scientist**: Data analysis (GPT-5.4 high) — statistics and research
+- **git-master**: Git operations (DSv4-Flash→Pro) — commits, rebasing, history
+- **document-specialist**: External docs lookup (GPT-5.4 medium) — SDK/API/package research
+- **code-simplifier**: Code clarity (DSv4-Pro) — simplification and maintainability
 
 ### Coordination
-- **critic**: Plan review + thorough gap analysis (opus) — critical challenge, multi-perspective investigation, structured "What's Missing" analysis
-
-### Deprecated Aliases
-- **api-reviewer** → code-reviewer
-- **performance-reviewer** → code-reviewer
-- **quality-reviewer** → code-reviewer
-- **quality-strategist** → code-reviewer
-- **dependency-expert** → document-specialist
-- **researcher** → document-specialist
-- **tdd-guide** → test-engineer
+- **critic**: Plan review (DUAL: GPT-5.4 xhigh + DSv4-Pro) — critical challenge, multi-perspective investigation
 - **deep-executor** → executor
 - **build-fixer** → debugger
 - **harsh-critic** → critic
