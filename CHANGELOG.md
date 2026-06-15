@@ -1,4 +1,4 @@
-# oh-my-claudecode v5.3.6: omc-wait-task — inotifywait
+# oh-my-claudecode v5.3.7: waitForTeamCompletion() — pure
 
 ## Release Notes
 
@@ -6,11 +6,11 @@ Release with **1 new feature** across **0 merged PRs**.
 
 ### Highlights
 
-- **feat: omc-wait-task — inotifywait event-driven waiter with auto team cleanup**
+- **feat: waitForTeamCompletion() — pure TS team lifecycle, zero shell**
 
 ### New Features
 
-- **feat: omc-wait-task — inotifywait event-driven waiter with auto team cleanup**
+- **feat: waitForTeamCompletion() — pure TS team lifecycle, zero shell**
 
 ### Stats
 

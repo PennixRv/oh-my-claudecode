@@ -1,4 +1,4 @@
-# oh-my-claudecode v5.3.6: omc-wait-task — inotifywait
+# oh-my-claudecode v5.3.7: waitForTeamCompletion() — pure
 
 ## Release Notes
 
@@ -6,11 +6,11 @@ Release with **1 new feature** across **0 merged PRs**.
 
 ### Highlights
 
-- **feat: omc-wait-task — inotifywait event-driven waiter with auto team cleanup**
+- **feat: waitForTeamCompletion() — pure TS team lifecycle, zero shell**
 
 ### New Features
 
-- **feat: omc-wait-task — inotifywait event-driven waiter with auto team cleanup**
+- **feat: waitForTeamCompletion() — pure TS team lifecycle, zero shell**
 
 ### Stats
 
@@ -19,7 +19,7 @@ Release with **1 new feature** across **0 merged PRs**.
 ### Install / Update
 
 ```bash
-npm install -g oh-my-claude-pennix@5.3.6
+npm install -g oh-my-claude-pennix@5.3.7
 ```
 
 Or reinstall the plugin:
@@ -27,4 +27,4 @@ Or reinstall the plugin:
 claude /install-plugin oh-my-claudecode
 ```
 
-**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-claudecode/compare/v5.3.5...v5.3.6
+**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-claudecode/compare/v5.3.6...v5.3.7
