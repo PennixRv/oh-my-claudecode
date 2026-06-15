@@ -191,7 +191,7 @@ export function routeTaskToRole(
 
   switch (intent) {
     case 'build-fix':
-      return { role: 'build-fixer', confidence: 'high', reason: 'build-fix intent detected' };
+      return { role: 'debugger', confidence: 'high', reason: 'build-fix intent detected → debugger' };
 
     case 'debug':
       return { role: 'debugger', confidence: 'high', reason: 'debug intent detected' };
@@ -209,7 +209,7 @@ export function routeTaskToRole(
       if (isSecurityDomain) {
         return { role: 'security-reviewer', confidence: 'high', reason: 'review intent with security domain detected' };
       }
-      return { role: 'quality-reviewer', confidence: 'high', reason: 'review intent detected' };
+      return { role: 'code-reviewer', confidence: 'high', reason: 'review intent detected' };
 
     case 'verification':
       return { role: 'test-engineer', confidence: 'high', reason: 'verification intent detected' };

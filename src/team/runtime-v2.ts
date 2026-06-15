@@ -663,6 +663,7 @@ const ROLE_PREFACES: Record<string, string> = {
 ---
 `,
 
+
   claude_default: `<!-- omc-role-preface: claude default -->
 ## 角色定位
 你是 **专长补充 worker**（DSv4/Claude）。中文文档撰写、1M 长上下文搜索/预扫、与 codex 配对的异构交叉验证。
@@ -2190,11 +2191,17 @@ export async function processCliWorkerVerdicts(
  * Check all DUAL parent tasks and advance synthesis when all children are terminal.
  * Called from monitorTeamV2 after each task snapshot.
  */
+// Dedup set: prevent same parent task from being synthesized twice in one monitor cycle.
+const _dualSynthesisSeen = new Set<string>();
+
 async function advanceDualParentSynthesis(
   teamName: string,
   cwd: string,
   allTasks: Array<{ id: string; status: string; parentTaskId?: string; metadata?: Record<string, unknown> }>,
 ): Promise<void> {
+  // Clear seen set each cycle so stalled parents can be retried next cycle.
+  // Within a single cycle, each parent ID is processed at most once.
+  const cycleSeen = new Set<string>();
   const deps = {
     teamName, cwd,
     readTask: async (t: string, id: string, c: string) => {
@@ -2216,6 +2223,8 @@ async function advanceDualParentSynthesis(
   // Step 1: dual_in_progress → dual_synthesis (all children terminal)
   const inProgressParents = allTasks.filter(t => t.status === 'dual_in_progress');
   for (const pt of inProgressParents) {
+    if (cycleSeen.has(pt.id)) continue;
+    cycleSeen.add(pt.id);
     const dualMeta = pt.metadata?.dual as Record<string, unknown> | undefined;
     const childIds: string[] = dualMeta?.childIds as string[] ?? [];
     if (childIds.length < 2) continue;
@@ -2229,6 +2238,8 @@ async function advanceDualParentSynthesis(
   // Step 2: dual_synthesis → completed/failed (apply synthesizeDualVerdicts)
   const synthesisParents = allTasks.filter(t => t.status === 'dual_synthesis');
   for (const pt of synthesisParents) {
+    if (cycleSeen.has(pt.id)) continue;
+    cycleSeen.add(pt.id);
     const dualMeta = pt.metadata?.dual as Record<string, unknown> | undefined;
     const childIds: string[] = dualMeta?.childIds as string[] ?? [];
     const reviseCount: number = (dualMeta?.reviseCount as number) ?? 0;

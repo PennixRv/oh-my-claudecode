@@ -72,7 +72,7 @@ export function estimateTaskComplexity(
     crossServiceChange: /cross.?service|multi.?module|multi.?service|跨服务|跨模块/i.test(combined),
     securityDomain: /security|auth|安全|认证|权限|payment|支付|secret|密钥/i.test(combined),
     dataMigration: /migrat|schema.*change|数据迁移|数据库变更/i.test(combined),
-    contextExceeds128K: estimatedTokens > 100000,
+    contextExceeds128K: estimatedTokens > 100000 || wordCount > 5000,
     paymentOrAuthChange: /payment|支付|auth|认证|login|登录/i.test(combined),
     highAmbiguityFix: /可能|也许|不确定|might|maybe|possibly|unclear/i.test(combined),
     executorVerifierSameFamily: false, // set by caller with routing context
