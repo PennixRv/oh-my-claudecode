@@ -19,8 +19,13 @@ import type {
   TeamRoleAssignmentSpec,
   TeamRoleProvider,
   TeamRoleTier,
+  TeamExecutionMode,
+  SynthesisConfig,
+  DualStarTrigger,
+  LadderStep,
 } from '../shared/types.js';
 import { CANONICAL_TEAM_ROLES } from '../shared/types.js';
+import type { ResolvedRoleExecutionPlan } from './types.js';
 import { normalizeDelegationRole } from '../features/delegation-routing/types.js';
 import {
   BUILTIN_EXTERNAL_MODEL_DEFAULTS,
@@ -44,6 +49,12 @@ const ROLE_TO_AGENT: Record<CanonicalTeamRole, KnownAgentName> = {
   'code-simplifier': 'codeSimplifier',
   explore: 'explore',
   'document-specialist': 'documentSpecialist',
+  // 5 new worker roles
+  verifier: 'verifier',
+  'qa-tester': 'qaTester',
+  scientist: 'scientist',
+  tracer: 'tracer',
+  'git-master': 'gitMaster',
 };
 
 /** Default model tier per canonical role (mirrors buildDefaultConfig().agents tiers). */
@@ -53,16 +64,57 @@ const ROLE_DEFAULT_TIER: Record<CanonicalTeamRole, TeamRoleTier> = {
   analyst: 'HIGH',
   architect: 'HIGH',
   executor: 'MEDIUM',
-  debugger: 'MEDIUM',
+  debugger: 'HIGH',
   critic: 'HIGH',
   'code-reviewer': 'HIGH',
-  'security-reviewer': 'MEDIUM',
-  'test-engineer': 'MEDIUM',
-  designer: 'MEDIUM',
+  'security-reviewer': 'HIGH',
+  'test-engineer': 'LOW',
+  designer: 'HIGH',
   writer: 'LOW',
   'code-simplifier': 'HIGH',
   explore: 'LOW',
   'document-specialist': 'MEDIUM',
+  // 5 new worker roles
+  verifier: 'HIGH',
+  'qa-tester': 'LOW',
+  scientist: 'HIGH',
+  tracer: 'HIGH',
+  'git-master': 'LOW',
+};
+
+/** Default execution mode per canonical role. */
+const ROLE_DEFAULT_MODE: Record<CanonicalTeamRole, TeamExecutionMode> = {
+  orchestrator: 'SINGLE',
+  critic: 'DUAL',
+  'security-reviewer': 'DUAL',
+  'code-reviewer': 'DUAL',
+  architect: 'DUAL_STAR',
+  analyst: 'DUAL_STAR',
+  debugger: 'DUAL_STAR',
+  verifier: 'DUAL_STAR',
+  executor: 'SINGLE_PLUS',
+  'test-engineer': 'SINGLE_PLUS',
+  'qa-tester': 'SINGLE_PLUS',
+  'git-master': 'SINGLE_PLUS',
+  planner: 'SINGLE',
+  designer: 'SINGLE',
+  'code-simplifier': 'SINGLE',
+  'document-specialist': 'SINGLE',
+  explore: 'SINGLE',
+  writer: 'SINGLE',
+  tracer: 'SINGLE',
+  scientist: 'SINGLE',
+};
+
+/** Default secondary model for DUAL / DUAL* roles (claude provider = DSv4-Pro). */
+const ROLE_DEFAULT_SECONDARY: Partial<Record<CanonicalTeamRole, { provider: TeamRoleProvider; model: TeamRoleTier }>> = {
+  critic: { provider: 'claude', model: 'HIGH' },
+  'security-reviewer': { provider: 'claude', model: 'HIGH' },
+  'code-reviewer': { provider: 'codex', model: 'HIGH' },
+  architect: { provider: 'claude', model: 'HIGH' },
+  analyst: { provider: 'claude', model: 'HIGH' },
+  debugger: { provider: 'claude', model: 'HIGH' },
+  verifier: { provider: 'claude', model: 'HIGH' },
 };
 
 const TIER_SET: ReadonlySet<string> = new Set<TeamRoleTier>(['HIGH', 'MEDIUM', 'LOW']);
@@ -183,7 +235,31 @@ export function resolveRoleAssignment(
     : resolveExternalModel(provider, spec?.model, cfg);
   const agent: KnownAgentName = spec?.agent ?? ROLE_TO_AGENT[canonical];
 
-  return { provider, model, agent };
+  // Resolve execution mode (user override > role default > SINGLE)
+  const executionMode: TeamExecutionMode = spec?.executionMode
+    ?? ROLE_DEFAULT_MODE[canonical]
+    ?? 'SINGLE';
+
+  // Resolve secondary assignment (user override > default for DUAL/DUAL* roles)
+  let secondary: RoleAssignment | undefined;
+  if (executionMode === 'DUAL' || executionMode === 'DUAL_STAR') {
+    const secSpec = spec?.secondary;
+    const secDefault = ROLE_DEFAULT_SECONDARY[canonical];
+    const secProvider = secSpec?.provider ?? secDefault?.provider ?? 'claude';
+    const secModel = secProvider === 'claude'
+      ? resolveClaudeModel(canonical, secSpec?.model ?? secDefault?.model, cfg)
+      : resolveExternalModel(secProvider as 'codex' | 'gemini' | 'grok', secSpec?.model, cfg);
+    secondary = { provider: secProvider, model: secModel, agent };
+  }
+
+  return {
+    provider, model, agent,
+    executionMode,
+    ...(secondary ? { secondary } : {}),
+    ...(spec?.synthesis ? { synthesis: spec.synthesis } : {}),
+    ...(spec?.dualStarTriggers ? { dualStarTriggers: spec.dualStarTriggers } : {}),
+    ...(spec?.ladder ? { ladder: spec.ladder } : {}),
+  };
 }
 
 function isCanonicalRole(value: string): value is CanonicalTeamRole {
@@ -200,20 +276,14 @@ function isCanonicalRole(value: string): value is CanonicalTeamRole {
  */
 export function buildResolvedRoutingSnapshot(
   cfg: PluginConfig,
-): Record<CanonicalTeamRole, { primary: RoleAssignment; fallback: RoleAssignment }> {
-  const out = {} as Record<CanonicalTeamRole, { primary: RoleAssignment; fallback: RoleAssignment }>;
+): Record<CanonicalTeamRole, ResolvedRoleExecutionPlan> {
+  const out = {} as Record<CanonicalTeamRole, ResolvedRoleExecutionPlan>;
   const roleRouting = cfg.team?.roleRouting as
     | Record<string, TeamRoleAssignmentSpec | undefined>
     | undefined;
 
   for (const role of CANONICAL_TEAM_ROLES) {
     const primary = resolveRoleAssignment(role, cfg);
-    // Fallback is always a Claude worker. Its model is the Claude-tier
-    // resolution of the role's spec (so tier stickiness survives fallback),
-    // NOT primary.model (which may be a codex/gemini model ID).
-    // When primary is external and spec.model is an explicit non-tier id
-    // (e.g., 'gpt-5.3-codex'), drop it for fallback so claude doesn't
-    // receive an external model id; tier names always survive.
     const spec = getRoleRoutingSpec(roleRouting, role);
     const isExternalPrimary = primary.provider !== 'claude';
     const fallbackModelInput = isExternalPrimary && spec?.model && !isTier(spec.model)
@@ -224,7 +294,18 @@ export function buildResolvedRoutingSnapshot(
       model: resolveClaudeModel(role, fallbackModelInput, cfg),
       agent: primary.agent,
     };
-    out[role] = { primary, fallback };
+
+    const mode: TeamExecutionMode = primary.executionMode ?? ROLE_DEFAULT_MODE[role] ?? 'SINGLE';
+
+    out[role] = {
+      primary,
+      fallback,
+      mode,
+      ...(primary.secondary ? { secondary: primary.secondary } : {}),
+      ...(primary.synthesis ? { synthesis: primary.synthesis } : {}),
+      ...(primary.dualStarTriggers ? { dualStarTriggers: primary.dualStarTriggers } : {}),
+      ...(primary.ladder ? { ladder: primary.ladder } : {}),
+    };
   }
   return out;
 }

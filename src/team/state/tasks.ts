@@ -3,6 +3,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { readFile, readdir } from 'fs/promises';
 import type { TeamTaskStatus } from '../contracts.js';
+import { isDualParentTask } from '../contracts.js';
 import type {
   TeamTask,
   TeamTaskDelegationComplianceEvidence,
@@ -79,6 +80,9 @@ export async function claimTask(
 
     if (deps.isTerminalTaskStatus(v.status)) return { ok: false as const, error: 'already_terminal' as const };
     if (v.status === 'in_progress') return { ok: false as const, error: 'claim_conflict' as const };
+
+    // DUAL parent tasks cannot be claimed by workers — use system transition
+    if (isDualParentTask(v.status)) return { ok: false as const, error: 'claim_conflict' as const };
 
     if (v.status === 'pending' || v.status === 'blocked') {
       if (v.claim) return { ok: false as const, error: 'claim_conflict' as const };
@@ -316,6 +320,60 @@ export async function listTasks(
 
 export const CLAIM_TTL_MS = 15 * 60 * 1000;
 export const CLAIM_GRACE_MS = 5 * 60 * 1000;
+
+/** Dependencies for system-only parent task transitions (bypasses worker claim checks). */
+export interface TransitionParentDeps {
+  teamName: string;
+  cwd: string;
+  readTask: (teamName: string, taskId: string, cwd: string) => Promise<TeamTask | null>;
+  withTaskClaimLock: <T>(teamName: string, taskId: string, cwd: string, fn: () => Promise<T>) => Promise<{ ok: true; value: T } | { ok: false }>;
+  normalizeTask: (task: TeamTask) => TeamTaskV2;
+  canTransitionTaskStatus: (from: TeamTaskStatus, to: TeamTaskStatus) => boolean;
+  taskFilePath: (teamName: string, taskId: string, cwd: string) => string;
+  writeAtomic: (path: string, data: string) => Promise<void>;
+}
+
+/**
+ * System-only transition for DUAL parent tasks. Bypasses owner/claim_token checks
+ * since parent tasks are never claimed by workers.
+ */
+export async function transitionParentTask(
+  parentTaskId: string,
+  from: TeamTaskStatus,
+  to: TeamTaskStatus,
+  extraFields: Partial<Pick<TeamTaskV2, 'metadata' | 'completed_at'>> | undefined,
+  deps: TransitionParentDeps,
+): Promise<TransitionTaskResult> {
+  if (!deps.canTransitionTaskStatus(from, to)) return { ok: false, error: 'invalid_transition' };
+
+  const lock = await deps.withTaskClaimLock(deps.teamName, parentTaskId, deps.cwd, async () => {
+    const current = await deps.readTask(deps.teamName, parentTaskId, deps.cwd);
+    if (!current) return { ok: false as const, error: 'task_not_found' as const };
+
+    const v = deps.normalizeTask(current);
+    if (v.status !== from) return { ok: false as const, error: 'invalid_transition' as const };
+    if (!deps.canTransitionTaskStatus(v.status, to)) return { ok: false as const, error: 'invalid_transition' as const };
+
+    // Safety: only dual parent tasks can use system-only transition.
+    // Ordinary tasks must go through claim-based transitionTaskStatus().
+    if (!isDualParentTask(v.status)) return { ok: false as const, error: 'invalid_transition' as const };
+
+    const updated: TeamTaskV2 = {
+      ...v,
+      status: to,
+      completed_at: extraFields?.completed_at ?? (to === 'completed' ? new Date().toISOString() : v.completed_at),
+      metadata: extraFields?.metadata ?? v.metadata,
+      claim: undefined,
+      version: v.version + 1,
+    };
+
+    await deps.writeAtomic(deps.taskFilePath(deps.teamName, parentTaskId, deps.cwd), JSON.stringify(updated, null, 2));
+    return { ok: true as const, task: updated };
+  });
+
+  if (!lock.ok) return { ok: false, error: 'claim_conflict' };
+  return lock.value;
+}
 
 /**
  * Renew the claim lease for a task owned by the given worker.

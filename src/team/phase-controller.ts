@@ -35,7 +35,9 @@ export function inferPhase(tasks: PhaseableTask[]): TeamPhase {
   if (tasks.length === 0) return 'initializing';
 
   // Categorize tasks
-  const inProgress = tasks.filter(t => t.status === 'in_progress');
+  const inProgress = tasks.filter(t =>
+    t.status === 'in_progress' || t.status === 'dual_pending' || t.status === 'dual_in_progress' || t.status === 'dual_synthesis'
+  );
   const pending = tasks.filter(t => t.status === 'pending');
   // CRITICAL: permanentlyFailed tasks have status='completed' but are actually failed
   const permanentlyFailed = tasks.filter(

@@ -318,13 +318,15 @@ export async function getTeamSummary(
   const tasks = await listTasksFromFiles(teamName, cwd);
   const tasksLoadedMs = performance.now() - tasksStartMs;
 
-  const counts = { total: tasks.length, pending: 0, blocked: 0, in_progress: 0, completed: 0, failed: 0 };
+  const counts = { total: tasks.length, pending: 0, blocked: 0, in_progress: 0, completed: 0, failed: 0, dual: 0 };
   for (const t of tasks) {
     if (t.status === 'pending') counts.pending++;
     else if (t.status === 'blocked') counts.blocked++;
     else if (t.status === 'in_progress') counts.in_progress++;
     else if (t.status === 'completed') counts.completed++;
     else if (t.status === 'failed') counts.failed++;
+    // DUAL parent statuses counted in the active-task set
+    else if (t.status === 'dual_pending' || t.status === 'dual_in_progress' || t.status === 'dual_synthesis') counts.in_progress++;
   }
 
   const workerSummaries: TeamSummary['workers'] = [];

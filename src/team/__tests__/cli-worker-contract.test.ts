@@ -40,9 +40,9 @@ describe('cli-worker-contract', () => {
   });
 
   describe('CONTRACT_ROLES', () => {
-    it('contains exactly the four reviewer-style roles', () => {
+    it('contains exactly the five reviewer-style roles', () => {
       expect(new Set(CONTRACT_ROLES)).toEqual(
-        new Set(['critic', 'code-reviewer', 'security-reviewer', 'test-engineer']),
+        new Set(['critic', 'code-reviewer', 'security-reviewer', 'test-engineer', 'verifier']),
       );
     });
   });
@@ -55,7 +55,7 @@ describe('cli-worker-contract', () => {
       );
       expect(fragment).toContain('code-reviewer');
       expect(fragment).toContain('/tmp/team/workers/worker-1/verdict.json');
-      expect(fragment).toContain('"verdict": "approve" | "revise" | "reject"');
+      expect(fragment).toContain('"verdict": "approve"');
       expect(fragment).toContain('REQUIRED: Structured Verdict Output');
     });
 

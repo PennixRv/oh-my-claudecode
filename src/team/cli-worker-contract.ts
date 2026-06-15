@@ -24,9 +24,10 @@ export const CONTRACT_ROLES: ReadonlySet<CanonicalTeamRole> = new Set<CanonicalT
   'code-reviewer',
   'security-reviewer',
   'test-engineer',
+  'verifier',
 ]);
 
-export type CliWorkerVerdict = 'approve' | 'revise' | 'reject';
+export type CliWorkerVerdict = 'approve' | 'concern' | 'revise' | 'reject';
 
 export type CliWorkerFindingSeverity = 'critical' | 'major' | 'minor' | 'nit';
 
@@ -45,7 +46,7 @@ export interface CliWorkerOutputPayload {
   findings: CliWorkerFinding[];
 }
 
-const VALID_VERDICTS: ReadonlySet<string> = new Set(['approve', 'revise', 'reject']);
+const VALID_VERDICTS: ReadonlySet<string> = new Set(['approve', 'concern', 'revise', 'reject']);
 const VALID_SEVERITIES: ReadonlySet<string> = new Set(['critical', 'major', 'minor', 'nit']);
 
 /**
@@ -93,7 +94,7 @@ export function renderCliWorkerOutputContract(
     '{',
     `  "role": "${role}",`,
     '  "task_id": "<task id from the assignment above>",',
-    '  "verdict": "approve" | "revise" | "reject",',
+    '  "verdict": "approve" | "concern" | "revise" | "reject",',
     '  "summary": "one- or two-sentence overall assessment",',
     '  "findings": [',
     '    {',
@@ -108,10 +109,11 @@ export function renderCliWorkerOutputContract(
     '',
     'Rules:',
     '- Write valid JSON only (no surrounding prose, no markdown fences in the file).',
-    '- `verdict` MUST be one of `approve`, `revise`, or `reject`.',
+    '- `verdict` MUST be one of `approve`, `concern`, `revise`, or `reject`.',
+    '- Use `approve` when you have no concerns.',
+    '- Use `concern` when you have advisory reservations but no blocking issues (the task completes with a note).',
+    '- Use `revise` or `reject` for blocking issues that must be addressed before the task can be considered done.',
     '- Each finding MUST carry a `severity` from the enum above.',
-    '- Use `approve` only when you have no blocking concerns.',
-    '- If you cannot produce a verdict, write `{"verdict":"revise", ...}` with an explanatory finding rather than exiting silently.',
     '- The team leader reads this file to mark the task complete; omitting it leaves the task stuck in_progress pending human review.',
     '',
   ].join('\n');

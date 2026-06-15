@@ -245,6 +245,106 @@ export function routeTaskToRole(
 }
 
 // ---------------------------------------------------------------------------
+// Task shape classification (for DUAL* triggers and SINGLE+ ladders)
+// ---------------------------------------------------------------------------
+
+/** Task shape — what kind of work the task represents. */
+export type TaskShape =
+  | 'code_generation'
+  | 'bug_fix'
+  | 'refactoring'
+  | 'debugging'
+  | 'review'
+  | 'security_audit'
+  | 'documentation'
+  | 'design'
+  | 'testing'
+  | 'large_scan'
+  | 'unknown';
+
+const SHAPE_PATTERNS: Array<{ shape: TaskShape; patterns: RegExp[] }> = [
+  {
+    shape: 'bug_fix',
+    patterns: [
+      /\bfix(?:ing|es)?\b/i, /\bbug\b/i, /\bregression\b/i, /\bissue\b/i,
+      /\brepair\b/i, /\bhotfix\b/i, /\bpatch\b/i, /\bresolve\b/i,
+    ],
+  },
+  {
+    shape: 'debugging',
+    patterns: [
+      /\bdebug(?:ging)?\b/i, /\binvestigate\b/i, /\broot.?cause\b/i,
+      /\bdiagnos(?:e|ing)\b/i, /\btrace\b/i, /\bwhy\s+(?:is|does|did)\b/i,
+    ],
+  },
+  {
+    shape: 'refactoring',
+    patterns: [
+      /\brefactor(?:ing)?\b/i, /\bsimplif(?:y|ying)\b/i, /\bclean\s*up\b/i,
+      /\bdead\s+code\b/i, /\bunused\b/i, /\bmigrat(?:e|ion)\b/i,
+    ],
+  },
+  {
+    shape: 'code_generation',
+    patterns: [
+      /\bimplement(?:ing|ation)?\b/i, /\badd\s+(?:the\s+)?(?:feature|function|method|class|endpoint)\b/i,
+      /\bbuild\s+(?:the\s+)?(?:feature|component|module|service)\b/i,
+      /\bcreate\s+(?:the\s+)?(?:feature|component|module)\b/i,
+      /\bwrite\s+(?:the\s+)?(?:code|function|class|method)\b/i,
+    ],
+  },
+  {
+    shape: 'review',
+    patterns: [/\breview\b/i, /\baudit\b/i, /\bpr\b/i, /\bcode\s+review\b/i],
+  },
+  {
+    shape: 'security_audit',
+    patterns: [
+      /\bsecurity\b/i, /\bvulnerab/i, /\bcve\b/i, /\bowasp\b/i, /\bxss\b/i,
+      /\binjection\b/i, /\bauth(?:entication|orization)?\b/i, /\bexploit\b/i,
+    ],
+  },
+  {
+    shape: 'design',
+    patterns: [
+      /\bdesign\b/i, /\barchitect(?:ure|ing)?\b/i, /\bui\b/i, /\bux\b/i,
+      /\bwireframe\b/i, /\bmockup\b/i, /\bprototype\b/i,
+    ],
+  },
+  {
+    shape: 'documentation',
+    patterns: [
+      /\bdocument(?:ation|ing)?\b/i, /\breadme\b/i, /\bchangelog\b/i,
+      /\bcomments?\b/i, /\bjsdoc\b/i,
+    ],
+  },
+  {
+    shape: 'testing',
+    patterns: [
+      /\btest(?:ing|s)?\b/i, /\bcoverage\b/i, /\bassert(?:ion)?\b/i,
+      /\be2e\b/i, /\bintegration\s+test\b/i, /\bunit\s+test\b/i,
+    ],
+  },
+  {
+    shape: 'large_scan',
+    patterns: [
+      /\bscan\b/i, /\banalyze\s+all\b/i, /\baudit\s+(?:the\s+)?(?:entire|full|whole)\b/i,
+      /\bcross.?module\b/i, /\bcodebase.?wide\b/i, /\brepo.?wide\b/i,
+    ],
+  },
+];
+
+export function classifyTaskShape(text: string): TaskShape {
+  if (!text || text.trim().length === 0) return 'unknown';
+  for (const { shape, patterns } of SHAPE_PATTERNS) {
+    for (const pattern of patterns) {
+      if (pattern.test(text)) return shape;
+    }
+  }
+  return 'unknown';
+}
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 

@@ -572,6 +572,51 @@ export function validateTeamConfig(config: PluginConfig): void {
         );
       }
     }
+
+    // Validate executionMode
+    if (spec.executionMode !== undefined) {
+      const VALID_MODES = new Set(['SINGLE', 'SINGLE_PLUS', 'DUAL', 'DUAL_STAR']);
+      if (typeof spec.executionMode !== 'string' || !VALID_MODES.has(spec.executionMode)) {
+        throw new Error(
+          `[OMC] team.roleRouting.${rawRoleKey}.executionMode: must be SINGLE, SINGLE_PLUS, DUAL, or DUAL_STAR, got "${String(spec.executionMode)}"`,
+        );
+      }
+    }
+
+    // Validate secondary
+    if (spec.secondary !== undefined) {
+      if (typeof spec.secondary !== 'object' || spec.secondary === null) {
+        throw new Error(`[OMC] team.roleRouting.${rawRoleKey}.secondary: must be an object`);
+      }
+      const sec = spec.secondary as Record<string, unknown>;
+      if (sec.provider !== undefined) {
+        if (typeof sec.provider !== 'string' || !TEAM_ROLE_PROVIDERS.has(sec.provider)) {
+          throw new Error(
+            `[OMC] team.roleRouting.${rawRoleKey}.secondary.provider: invalid "${String(sec.provider)}". Allowed: ${[...TEAM_ROLE_PROVIDERS].join(', ')}`,
+          );
+        }
+      }
+      if (sec.model !== undefined && !isValidModelValue(sec.model)) {
+        throw new Error(
+          `[OMC] team.roleRouting.${rawRoleKey}.secondary.model: must be a tier name or model ID string`,
+        );
+      }
+    }
+
+    // Validate synthesis
+    if (spec.synthesis !== undefined) {
+      if (typeof spec.synthesis !== 'object' || spec.synthesis === null) {
+        throw new Error(`[OMC] team.roleRouting.${rawRoleKey}.synthesis: must be an object`);
+      }
+      const syn = spec.synthesis as Record<string, unknown>;
+      if (syn.maxReviseCycles !== undefined) {
+        if (typeof syn.maxReviseCycles !== 'number' || syn.maxReviseCycles < 1 || syn.maxReviseCycles > 10) {
+          throw new Error(
+            `[OMC] team.roleRouting.${rawRoleKey}.synthesis.maxReviseCycles: must be a number between 1-10`,
+          );
+        }
+      }
+    }
   }
 }
 
