@@ -310,13 +310,13 @@ describe('delegation-enforcer', () => {
   describe('getModelForAgent', () => {
     it('returns correct model for agent with prefix', () => {
       expect(getModelForAgent('oh-my-claudecode:executor')).toBe('sonnet');
-      expect(getModelForAgent('oh-my-claudecode:debugger')).toBe('sonnet');
+      expect(getModelForAgent('oh-my-claudecode:debugger')).toBe('opus');
       expect(getModelForAgent('oh-my-claudecode:architect')).toBe('opus');
     });
 
     it('returns correct model for agent without prefix', () => {
       expect(getModelForAgent('executor')).toBe('sonnet');
-      expect(getModelForAgent('debugger')).toBe('sonnet');
+      expect(getModelForAgent('debugger')).toBe('opus');
       expect(getModelForAgent('architect')).toBe('opus');
       expect(getModelForAgent('build-fixer')).toBe('sonnet');
     });
