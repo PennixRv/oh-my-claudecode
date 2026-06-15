@@ -93,7 +93,7 @@ describe('Agent Registry Validation', () => {
     const agents = getAgentDefinitions();
 
     expect(agents.architect?.model).toBe('us.anthropic.claude-opus-4-6-v1:0');
-    expect(agents.executor?.model).toBe('us.anthropic.claude-sonnet-4-6-v1:0');
+    expect(agents.executor?.model).toBe('us.anthropic.claude-haiku-4-5-v1:0');
     expect(agents.explore?.model).toBe('us.anthropic.claude-haiku-4-5-v1:0');
     expect(agents.tracer?.model).toBe('us.anthropic.claude-opus-4-6-v1:0');
   });
@@ -155,7 +155,7 @@ describe('Agent Registry Validation', () => {
     const agents = getAgentDefinitions();
 
     expect(agents.architect?.model).toBe('glm-5.1:cloud');
-    expect(agents.executor?.model).toContain('claude-sonnet');
+    expect(agents.executor?.model).toContain('claude-haiku');
     expect(agents.executor?.model).not.toBe('glm-5.1:cloud');
   });
 
@@ -197,7 +197,7 @@ describe('Agent Registry Validation', () => {
       },
     });
 
-    expect(agents.executor?.model).toBe('sonnet');
+    expect(agents.executor?.model).toBe('haiku');
     expect(agents.executor?.model).not.toBe('claude-3-7-session-parent');
   });
 

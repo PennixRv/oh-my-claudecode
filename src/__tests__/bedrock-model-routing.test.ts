@@ -132,7 +132,7 @@ describe('Bedrock model routing repro', () => {
       // 3. Agent definitions use full builtin model IDs from config
       const { getAgentDefinitions } = await import('../agents/definitions.js');
       const defs = getAgentDefinitions({ config });
-      expect(defs['executor'].model).toBe('claude-sonnet-4-6');
+      expect(defs['executor'].model).toBe('claude-haiku-4-5');
       expect(defs['explore'].model).toBe('claude-haiku-4-5');
       expect(defs['architect'].model).toBe('claude-opus-4-8');
 
@@ -146,7 +146,7 @@ describe('Bedrock model routing repro', () => {
         subagent_type: 'oh-my-claudecode:executor',
       });
       expect(executorResult.injected).toBe(true);
-      expect(executorResult.modifiedInput.model).toBe('sonnet');
+      expect(executorResult.modifiedInput.model).toBe('haiku');
 
       // 4b. explore → 'haiku'
       const exploreResult = enforceModel({
@@ -228,7 +228,7 @@ describe('Bedrock model routing repro', () => {
       expect(getDefaultModelLow()).toBe('global.anthropic.claude-haiku-4-5-v1:0');
 
       // 4. config.agents get the Bedrock-format model IDs
-      expect(config.agents?.executor?.model).toBe('global.anthropic.claude-sonnet-4-6-v1:0');
+      expect(config.agents?.executor?.model).toBe('global.anthropic.claude-haiku-4-5-v1:0');
       expect(config.agents?.architect?.model).toBe('global.anthropic.claude-opus-4-6-v1:0');
       expect(config.agents?.explore?.model).toBe('global.anthropic.claude-haiku-4-5-v1:0');
 
