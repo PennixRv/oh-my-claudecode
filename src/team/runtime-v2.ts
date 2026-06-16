@@ -687,7 +687,7 @@ async function notifyStartupInbox(
   // Startup inbox triggers are only safe to type once after readiness. If the
   // pane still rejects the send (for example Claude is showing a startup
   // banner), repeated tmux send-keys calls append duplicate trigger text.
-  const notified = await notifyPaneWithRetry(sessionName, paneId, message, 4);
+  const notified = await notifyPaneWithRetry(sessionName, paneId, message, 1);
   return notified
     ? { ok: true, transport: 'tmux_send_keys', reason: 'worker_pane_notified' }
     : { ok: false, transport: 'tmux_send_keys', reason: 'worker_notify_failed' };
@@ -1063,6 +1063,11 @@ async function spawnV2Worker(opts: SpawnV2WorkerOptions): Promise<SpawnV2WorkerR
 
   // Apply layout
   await applyMainVerticalLayout(opts.sessionName);
+
+  // Settle delay: let the pane's TUI fully bind input before readiness checks.
+  // Prevents false-positive ready state when pane is still initializing
+  // (especially DUAL secondary workers created from a booting primary pane).
+  await new Promise(r => setTimeout(r, 1500));
 
   // For interactive agents, wait for pane readiness before dispatching startup inbox.
   let paneReadyFailed = false;
