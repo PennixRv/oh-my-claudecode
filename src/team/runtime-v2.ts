@@ -296,16 +296,18 @@ function resolveTaskAssignment(
   // Snapshot routing only overrides the caller's CLI agentType when the user
   // has explicitly opted in — either by setting `task.role` or by configuring
   // `team.roleRouting[<canonicalRole>]` in PluginConfig. This preserves the
-  // pre-patch contract: `/team N:codex ...` stays on codex when config has no
-  // per-role routing, even if the task text incidentally mentions "reviewer".
+  // pre-patch contract: `/team N:codex ...` stays on codex when the user
+  // explicitly typed `N:codex`, even if the config has per-role routing for
+  // the auto-inferred role.
   const hasConfigForRole = !!getRoleRoutingSpec(
     roleRoutingConfig as Record<string, TeamRoleAssignmentSpec | undefined> | undefined,
     canonical,
   );
-  if (!hasExplicitRole && !hasConfigForRole) {
+  if (!hasExplicitRole) {
     return { agentType: fallbackAgent, model: '', role: canonical };
   }
 
+  // Explicit role: apply snapshot routing (DUAL/DUAL*/SINGLE+/SINGLE modes)
   const pair = resolvedRouting[canonical];
   if (!pair) {
     return { agentType: fallbackAgent, model: '', role: canonical };
