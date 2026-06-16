@@ -149,6 +149,8 @@ export async function buildCodexWorkerEnv(
   workerName: string,
   agentType: string,
   launchId?: string,
+  /** Per-role reasoning effort override (takes precedence over inherited global config). */
+  reasoningEffort?: string,
 ): Promise<CodexWorkerEnvResult> {
   if (agentType !== 'codex') return { env: {}, runtimeMirror: '' };
 
@@ -161,6 +163,25 @@ export async function buildCodexWorkerEnv(
 
   // Prepare runtime mirror for this launch
   await prepareRuntimeMirror(durableBase, runtimeMirror);
+
+  // If per-role reasoning effort is specified, override the inherited global config.
+  if (reasoningEffort) {
+    const configToml = join(durableBase, 'config.toml');
+    if (existsSync(configToml)) {
+      try {
+        let content = readFileSync(configToml, 'utf-8');
+        // Replace existing model_reasoning_effort line or append
+        if (/^model_reasoning_effort\s*=/m.test(content)) {
+          content = content.replace(/^model_reasoning_effort\s*=.*$/m, `model_reasoning_effort = "${reasoningEffort}"`);
+        } else {
+          content += `\nmodel_reasoning_effort = "${reasoningEffort}"\n`;
+        }
+        writeFileSync(configToml, content);
+      } catch {
+        // best-effort; worker will fall back to inherited global config
+      }
+    }
+  }
 
   return {
     env: { CODEX_HOME: runtimeMirror, CODEX_SQLITE_HOME: sqliteHome },

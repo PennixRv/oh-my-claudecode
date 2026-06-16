@@ -259,6 +259,8 @@ export function resolveRoleAssignment(
     ...(spec?.synthesis ? { synthesis: spec.synthesis } : {}),
     ...(spec?.dualStarTriggers ? { dualStarTriggers: spec.dualStarTriggers } : {}),
     ...(spec?.ladder ? { ladder: spec.ladder } : {}),
+    ...(spec?.reasoningEffort ? { reasoningEffort: spec.reasoningEffort } : {}),
+    ...(spec?.planModeReasoningEffort ? { planModeReasoningEffort: spec.planModeReasoningEffort } : {}),
   };
 }
 
@@ -305,6 +307,8 @@ export function buildResolvedRoutingSnapshot(
       ...(primary.synthesis ? { synthesis: primary.synthesis } : {}),
       ...(primary.dualStarTriggers ? { dualStarTriggers: primary.dualStarTriggers } : {}),
       ...(primary.ladder ? { ladder: primary.ladder } : {}),
+      ...(primary.reasoningEffort ? { reasoningEffort: primary.reasoningEffort } : {}),
+      ...(primary.planModeReasoningEffort ? { planModeReasoningEffort: primary.planModeReasoningEffort } : {}),
     };
   }
   return out;

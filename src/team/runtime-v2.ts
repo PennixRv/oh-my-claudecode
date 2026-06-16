@@ -741,6 +741,8 @@ interface SpawnV2WorkerOptions {
    * is populated for the completion handler.
    */
   role?: CanonicalTeamRole;
+  /** Per-role Codex reasoning effort (overrides inherited global config). */
+  reasoningEffort?: import('../shared/types.js').TeamReasoningEffort;
 }
 
 interface SpawnV2WorkerResult {
@@ -983,7 +985,8 @@ async function spawnV2Worker(opts: SpawnV2WorkerOptions): Promise<SpawnV2WorkerR
   // Build env and launch command
   // Codex worker CODEX_HOME isolation (durable base + runtime mirror)
   const codexHomeResult = await buildCodexWorkerEnv(
-    opts.cwd, opts.teamName, opts.workerName, opts.agentType,
+    opts.cwd, opts.teamName, opts.workerName, opts.agentType, undefined,
+    opts.reasoningEffort,
   );
 
   const envVars = {
@@ -1714,6 +1717,7 @@ export async function startTeamV2(config: StartTeamV2Config): Promise<TeamRuntim
       resolvedBinaryPaths,
       ...(assignment.model ? { model: assignment.model } : {}),
       ...(assignment.role ? { role: assignment.role } : {}),
+      ...(routingEntry?.reasoningEffort ? { reasoningEffort: routingEntry.reasoningEffort } : {}),
     });
 
     if (workerLaunch.paneId) {

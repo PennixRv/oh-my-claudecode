@@ -287,6 +287,8 @@ export interface ResolvedRoleExecutionPlan {
   synthesis?: SynthesisConfig;
   dualStarTriggers?: DualStarTrigger[];
   ladder?: import('../shared/types.js').LadderStep[];
+  reasoningEffort?: import('../shared/types.js').TeamReasoningEffort;
+  planModeReasoningEffort?: import('../shared/types.js').TeamReasoningEffort;
 }
 
 /** Worker info within a team config */

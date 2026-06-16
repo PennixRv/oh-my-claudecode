@@ -427,6 +427,9 @@ export type TeamRoleProvider = 'claude' | 'codex' | 'gemini' | 'grok';
 /** Tier name accepted in role-assignment `model` field. */
 export type TeamRoleTier = 'HIGH' | 'MEDIUM' | 'LOW';
 
+/** Reasoning/thinking effort level for Codex workers. */
+export type TeamReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
 // ---------------------------------------------------------------------------
 // Execution mode types for DUAL / DUAL* / SINGLE+ / SINGLE role routing
 // ---------------------------------------------------------------------------
@@ -512,6 +515,10 @@ export interface TeamRoleAssignmentSpec {
   dualStarTriggers?: DualStarTrigger[];
   /** SINGLE+ escalation ladder. */
   ladder?: LadderStep[];
+  /** Codex reasoning effort (per-role override). */
+  reasoningEffort?: TeamReasoningEffort;
+  /** Codex plan-mode reasoning effort (per-role override). */
+  planModeReasoningEffort?: TeamReasoningEffort;
 }
 
 /** Orchestrator is pinned to claude; only `model` is user-configurable. */
@@ -555,4 +562,8 @@ export interface RoleAssignment {
   dualStarTriggers?: DualStarTrigger[];
   /** SINGLE+ escalation ladder. */
   ladder?: LadderStep[];
+  /** Codex reasoning effort. */
+  reasoningEffort?: TeamReasoningEffort;
+  /** Codex plan-mode reasoning effort. */
+  planModeReasoningEffort?: TeamReasoningEffort;
 }
