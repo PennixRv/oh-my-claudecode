@@ -1587,8 +1587,12 @@ export async function startTeamV2(config: StartTeamV2Config): Promise<TeamRuntim
     const routingEntry = assignment.role ? resolvedRouting[assignment.role as CanonicalTeamRole] : undefined;
     const mode = routingEntry?.mode ?? 'SINGLE';
 
-    // Only modes that require special handling
-    if (routingEntry && mode !== 'SINGLE') {
+    // Only modes that require special handling.
+    // Guard: auto-inferred roles (no explicit task.role) never trigger DUAL/DUAL*/SINGLE+.
+    // This prevents the role-router from upgrading a plain `1:codex "scan code"` dispatch
+    // to DUAL just because the task text mentions "审查" keywords.
+    const isExplicitRole = typeof task.role === 'string' && task.role.length > 0;
+    if (routingEntry && mode !== 'SINGLE' && isExplicitRole) {
       const re = routingEntry;
 
       // DUAL: always spawn pair
