@@ -1,4 +1,4 @@
-# oh-my-claudecode v5.3.8: Bug Fixes
+# oh-my-claudecode v5.3.9: Bug Fixes
 
 ## Release Notes
 
@@ -6,11 +6,11 @@ Release with **1 bug fix** across **0 merged PRs**.
 
 ### Highlights
 
-- **fix: increase notifyStartupInbox retry from 1 to 4 attempts**
+- **fix: add 1.5s settle delay after pane spawn instead of increasing retries**
 
 ### Bug Fixes
 
-- **fix: increase notifyStartupInbox retry from 1 to 4 attempts**
+- **fix: add 1.5s settle delay after pane spawn instead of increasing retries**
 
 ### Stats
 
