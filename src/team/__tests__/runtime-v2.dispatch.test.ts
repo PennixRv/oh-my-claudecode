@@ -599,7 +599,7 @@ describe('runtime v2 startup inbox dispatch', () => {
     expect(persisted.workers.map((worker: { role: string }) => worker.role)).toEqual(['architect', 'writer']);
   });
 
-  it('routes inferred review work through alias-keyed resolved snapshot entries', async () => {
+  it('keeps explicit agent type when role is auto-inferred from task text', async () => {
     cwd = await mkdtemp(join(tmpdir(), 'omc-runtime-v2-alias-routing-'));
     await mkdir(join(cwd, '.claude'), { recursive: true });
     await writeFile(
@@ -625,8 +625,9 @@ describe('runtime v2 startup inbox dispatch', () => {
       cwd,
     });
 
-    expect(runtime.config.resolved_routing?.['code-reviewer']?.primary.provider).toBe('gemini');
-    expect(modelContractMocks.buildWorkerArgv).toHaveBeenCalledWith('gemini', expect.any(Object));
+    // Auto-inferred role should NOT override the explicitly specified agent type (claude).
+    // Snapshot routing only applies when the user explicitly types N:agent-type:ROLE.
+    expect(modelContractMocks.buildWorkerArgv).toHaveBeenCalledWith('claude', expect.any(Object));
   });
 
   it('passes through dedicated-window startup requests', async () => {
