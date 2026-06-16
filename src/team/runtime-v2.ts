@@ -1064,10 +1064,12 @@ async function spawnV2Worker(opts: SpawnV2WorkerOptions): Promise<SpawnV2WorkerR
   // Apply layout
   await applyMainVerticalLayout(opts.sessionName);
 
-  // Settle delay: let the pane's TUI fully bind input before readiness checks.
-  // Prevents false-positive ready state when pane is still initializing
-  // (especially DUAL secondary workers created from a booting primary pane).
-  await new Promise(r => setTimeout(r, 1500));
+  // Settle delay for non-first workers: layout adjustments from split-window
+  // and applyMainVerticalLayout can disturb a freshly spawned pane's TUI.
+  // First worker (split from stable leader pane) doesn't need this.
+  if (opts.existingWorkerPaneIds.length > 0) {
+    await new Promise(r => setTimeout(r, 1500));
+  }
 
   // For interactive agents, wait for pane readiness before dispatching startup inbox.
   let paneReadyFailed = false;
