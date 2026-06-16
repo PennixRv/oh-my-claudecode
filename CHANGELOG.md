@@ -1,4 +1,4 @@
-# oh-my-claudecode v5.3.10: Bug Fixes
+# oh-my-claudecode v5.3.11: Bug Fixes
 
 ## Release Notes
 
@@ -6,11 +6,11 @@ Release with **1 bug fix** across **0 merged PRs**.
 
 ### Highlights
 
-- **fix: settle delay only for non-first workers (DUAL secondary)**
+- **fix: only apply DUAL/DUAL*/SINGLE+ for explicitly specified roles**
 
 ### Bug Fixes
 
-- **fix: settle delay only for non-first workers (DUAL secondary)**
+- **fix: only apply DUAL/DUAL*/SINGLE+ for explicitly specified roles**
 
 ### Stats
 
