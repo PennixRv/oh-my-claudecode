@@ -1,4 +1,4 @@
-# oh-my-claudecode v5.3.11: Bug Fixes
+# oh-my-claudecode v5.3.12: Bug Fixes
 
 ## Release Notes
 
@@ -6,11 +6,11 @@ Release with **1 bug fix** across **0 merged PRs**.
 
 ### Highlights
 
-- **fix: only apply DUAL/DUAL*/SINGLE+ for explicitly specified roles**
+- **fix: add OMC_TEAM_ROLE_OVERRIDES and OMC_ROUTING_FORCE_INHERIT to worker env allowlist**
 
 ### Bug Fixes
 
-- **fix: only apply DUAL/DUAL*/SINGLE+ for explicitly specified roles**
+- **fix: add OMC_TEAM_ROLE_OVERRIDES and OMC_ROUTING_FORCE_INHERIT to worker env allowlist**
 
 ### Stats
 
