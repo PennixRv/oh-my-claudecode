@@ -36,6 +36,8 @@ export interface WorkerLaunchConfig {
    * Consumed by the worker-completion handler in runtime-v2.
    */
   output_file?: string;
+  /** Per-role reasoning effort for Claude/DSv4 workers (--effort flag). */
+  reasoningEffort?: string;
 }
 
 /** @deprecated Backward-compat shim for older team API consumers. */
@@ -376,6 +378,10 @@ export function buildWorkerArgv(agentType: CliAgentType, config: WorkerLaunchCon
       })()
     : resolveBinaryPath(contract.binary);
   const args = buildLaunchArgs(agentType, config);
+  // Per-role reasoning effort for Claude/DSv4 workers (Appendix F)
+  if (agentType === 'claude' && config.reasoningEffort) {
+    args.push('--effort', config.reasoningEffort);
+  }
   return [binary, ...args];
 }
 

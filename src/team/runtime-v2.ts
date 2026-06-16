@@ -1031,6 +1031,7 @@ async function spawnV2Worker(opts: SpawnV2WorkerOptions): Promise<SpawnV2WorkerR
     cwd: opts.workerCwd ?? opts.cwd,
     resolvedBinaryPath,
     model: modelForAgent,
+    ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
   });
 
   // For prompt-mode agents (currently gemini), keep the full instruction in
