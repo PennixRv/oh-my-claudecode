@@ -1,4 +1,4 @@
-# oh-my-claudecode v5.3.9: Bug Fixes
+# oh-my-claudecode v5.3.10: Bug Fixes
 
 ## Release Notes
 
@@ -6,11 +6,11 @@ Release with **1 bug fix** across **0 merged PRs**.
 
 ### Highlights
 
-- **fix: add 1.5s settle delay after pane spawn instead of increasing retries**
+- **fix: settle delay only for non-first workers (DUAL secondary)**
 
 ### Bug Fixes
 
-- **fix: add 1.5s settle delay after pane spawn instead of increasing retries**
+- **fix: settle delay only for non-first workers (DUAL secondary)**
 
 ### Stats
 
@@ -19,7 +19,7 @@ Release with **1 bug fix** across **0 merged PRs**.
 ### Install / Update
 
 ```bash
-npm install -g oh-my-claude-pennix@5.3.9
+npm install -g oh-my-claude-pennix@5.3.10
 ```
 
 Or reinstall the plugin:
@@ -27,4 +27,4 @@ Or reinstall the plugin:
 claude /install-plugin oh-my-claudecode
 ```
 
-**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-claudecode/compare/v5.3.8...v5.3.9
+**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-claudecode/compare/v5.3.9...v5.3.10

@@ -1,4 +1,4 @@
-# oh-my-claudecode v5.3.9: Bug Fixes
+# oh-my-claudecode v5.3.10: Bug Fixes
 
 ## Release Notes
 
@@ -6,11 +6,11 @@ Release with **1 bug fix** across **0 merged PRs**.
 
 ### Highlights
 
-- **fix: add 1.5s settle delay after pane spawn instead of increasing retries**
+- **fix: settle delay only for non-first workers (DUAL secondary)**
 
 ### Bug Fixes
 
-- **fix: add 1.5s settle delay after pane spawn instead of increasing retries**
+- **fix: settle delay only for non-first workers (DUAL secondary)**
 
 ### Stats
 
