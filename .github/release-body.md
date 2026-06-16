@@ -1,25 +1,25 @@
-# oh-my-claudecode v5.3.13: Bug Fixes
+# oh-my-claudecode v5.3.14: per-role thinking depth
 
 ## Release Notes
 
-Release with **1 bug fix** across **0 merged PRs**.
+Release with **1 new feature** across **0 merged PRs**.
 
 ### Highlights
 
-- **fix: non-explicit roles never override caller agent type via snapshot routing**
+- **feat: per-role thinking depth (reasoningEffort) — 5-layer wiring**
 
-### Bug Fixes
+### New Features
 
-- **fix: non-explicit roles never override caller agent type via snapshot routing**
+- **feat: per-role thinking depth (reasoningEffort) — 5-layer wiring**
 
 ### Stats
 
-- **0 PRs merged** | **0 new features** | **1 bug fix** | **0 security/hardening improvements** | **0 other changes**
+- **0 PRs merged** | **1 new feature** | **0 bug fixes** | **0 security/hardening improvements** | **0 other changes**
 
 ### Install / Update
 
 ```bash
-npm install -g oh-my-claude-pennix@5.3.13
+npm install -g oh-my-claude-pennix@5.3.14
 ```
 
 Or reinstall the plugin:
@@ -27,4 +27,4 @@ Or reinstall the plugin:
 claude /install-plugin oh-my-claudecode
 ```
 
-**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-claudecode/compare/v5.3.12...v5.3.13
+**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-claudecode/compare/v5.3.13...v5.3.14
